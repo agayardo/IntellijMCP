@@ -1,0 +1,54 @@
+<!-- Plugin Configuration File: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <!-- Unique identifier of the plugin. It should be FQN, cannot be changed between the plugin versions. -->
+    <id>ca.artemgm.DevelopmentMcp</id>
+
+    <!-- Public plugin name should be written in Title Case.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
+    <name>DevelopmentMcp</name>
+
+    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
+    <vendor url="https://www.yourcompany.com">YourCompany</vendor>
+
+    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
+    <description><![CDATA[
+        Exposes an MCP tool that lets AI assistants run tests with coverage directly inside IntelliJ IDEA.<br><br>
+
+        <b>Tool: <code>run_test</code></b><br>
+        Runs JUnit tests at package, class, or method scope and returns structured results with line and branch coverage.
+        Supports both Gradle and native JUnit run configurations.<br><br>
+
+        <b>Setup</b><br>
+        <ol>
+            <li>Open a project &mdash; the plugin starts automatically and installs the stdio bridge</li>
+            <li>Point your MCP client at the bridge. Example <code>mcp.json</code>:</li>
+        </ol>
+        <pre>
+{
+  "mcpServers": {
+    "intellij-dev-mcp": {
+      "command": "bash",
+      "args": ["-c", "~/.intellij-dev-mcp/bin/stdio-mcp-server"]
+    }
+  }
+}
+        </pre>
+    ]]></description>
+
+    <!-- Product and plugin compatibility requirements.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <depends>com.intellij.java</depends>
+    <depends>JUnit</depends>
+    <depends>Coverage</depends>
+    <depends optional="true" config-file="gradle-support.xml">com.intellij.gradle</depends>
+
+    <!-- Extensions defined by the plugin.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="ca.artemgm.developmentmcp.protocol.CommandProtocolStartupActivity"/>
+        <applicationService serviceImplementation="ca.artemgm.developmentmcp.protocol.CommandProtocolService"/>
+    </extensions>
+</idea-plugin>
