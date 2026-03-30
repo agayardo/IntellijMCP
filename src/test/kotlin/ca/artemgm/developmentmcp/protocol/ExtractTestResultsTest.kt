@@ -109,6 +109,9 @@ class ExtractTestResultsTest {
             val result = extractTestResults(console, "MyConfig", 0, "")
 
             assertThat(result.output).contains("Total: 0")
+            assertThat(result.output).contains("WARNING")
+            assertThat(result.output).contains("no tests")
+            assertThat(result.failed).isTrue()
         }
 
         @Test
@@ -121,6 +124,56 @@ class ExtractTestResultsTest {
             assertThat(result.output).contains("Total: 0")
             assertThat(result.output).contains("WARNING")
             assertThat(result.failed).isTrue()
+        }
+    }
+
+    @Nested
+    inner class StacktraceFormatting {
+
+        @Test
+        fun `failure output includes exception class and message from stacktrace`() {
+            val root = rootWithStacktrace(
+                "java.lang.AssertionError: expected <5> but was <3>\n" +
+                    "\tat com.example.MyTest.testFoo(MyTest.java:42)\n" +
+                    "\tat org.junit.runners.BlockJUnit4ClassRunner.run(BlockJUnit4ClassRunner.java:50)"
+            )
+            val console = FakeConsoleView(root)
+
+            val result = extractTestResults(console, "MyConfig", 1, "")
+
+            assertThat(result.output).contains("java.lang.AssertionError: expected <5> but was <3>")
+            assertThat(result.output).contains("com.example.MyTest.testFoo(MyTest.java:42)")
+        }
+
+        @Test
+        fun `stacktrace starting with at-frame includes it as first line`() {
+            val root = rootWithStacktrace(
+                "\tat org.junit.Assume.assumeThat(Assume.java:106)\n" +
+                    "\tat com.example.MyTest.testFoo(MyTest.java:42)"
+            )
+            val console = FakeConsoleView(root)
+
+            val result = extractTestResults(console, "MyConfig", 1, "")
+
+            assertThat(result.output).contains("org.junit.Assume.assumeThat(Assume.java:106)")
+            assertThat(result.output).contains("com.example.MyTest.testFoo(MyTest.java:42)")
+        }
+
+        @Test
+        fun `failure output includes caused-by line`() {
+            val root = rootWithStacktrace(
+                "org.opentest4j.AssertionFailedError: boom\n" +
+                    "\tat org.junit.jupiter.api.Assertions.fail(Assertions.java:100)\n" +
+                    "Caused by: java.io.IOException: disk full\n" +
+                    "\tat com.example.Storage.write(Storage.java:55)"
+            )
+            val console = FakeConsoleView(root)
+
+            val result = extractTestResults(console, "MyConfig", 1, "")
+
+            assertThat(result.output).contains("org.opentest4j.AssertionFailedError: boom")
+            assertThat(result.output).contains("Caused by: java.io.IOException: disk full")
+            assertThat(result.output).contains("com.example.Storage.write(Storage.java:55)")
         }
     }
 
@@ -145,6 +198,15 @@ class ExtractTestResultsTest {
             assertThat(result.failed).isFalse()
         }
     }
+}
+
+private fun rootWithStacktrace(stacktrace: String): SMTestProxy {
+    val root = SMTestProxy("[root]", true, null)
+    val failing = SMTestProxy("failing test", false, null)
+    failing.setTestFailed("assertion failed", stacktrace, false)
+    root.addChild(failing)
+    root.setFinished()
+    return root
 }
 
 private fun emptyRoot(): SMTestProxy {

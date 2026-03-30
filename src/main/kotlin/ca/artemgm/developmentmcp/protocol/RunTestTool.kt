@@ -320,7 +320,7 @@ private fun formatTestResults(configName: String, root: AbstractTestProxy, exitC
     val passed = leafTests.count { it.isPassed }
     val failed = leafTests.count { it.isDefect }
     val ignored = leafTests.count { !it.isPassed && !it.isDefect }
-    val runFailed = failed > 0 || exitCode != 0
+    val runFailed = failed > 0 || exitCode != 0 || leafTests.isEmpty()
 
     val sb = StringBuilder()
     sb.appendLine("Test run '$configName' completed (exit code $exitCode)")
@@ -329,6 +329,11 @@ private fun formatTestResults(configName: String, root: AbstractTestProxy, exitC
     if (exitCode != 0 && failed == 0) {
         sb.appendLine()
         sb.appendLine("WARNING: non-zero exit code ($exitCode) with no test failures — the test process may have crashed or failed to start.")
+    }
+
+    if (leafTests.isEmpty() && exitCode == 0) {
+        sb.appendLine()
+        sb.appendLine("WARNING: no tests were found or executed.")
     }
 
     val failures = leafTests.filter { it.isDefect }
@@ -473,12 +478,15 @@ private val TEST_CLASS_SUFFIXES = listOf("Test", "Tests", "TestCase", "IT")
 
 private fun extractRelevantFrames(stacktrace: String): List<String> {
     val lines = stacktrace.lines()
+    val exceptionLine = lines.firstOrNull { it.isNotBlank() }
+        ?.takeUnless { it.trimStart().startsWith("at ") }
     val causeLine = lines.firstOrNull { it.trimStart().startsWith("Caused by:") }
     val frames = lines.filter { line ->
         val trimmed = line.trimStart()
         trimmed.startsWith("at ") && FRAMEWORK_PACKAGE_PREFIXES.none { prefix -> trimmed.startsWith("at $prefix") }
     }
     val result = mutableListOf<String>()
+    if (exceptionLine != null) result.add(exceptionLine.trim())
     if (causeLine != null) result.add(causeLine.trim())
     result.addAll(frames.take(MAX_STACKTRACE_FRAMES))
     return result
