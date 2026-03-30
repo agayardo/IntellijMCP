@@ -18,13 +18,9 @@ import com.intellij.execution.testframework.AbstractTestProxy
 import com.intellij.openapi.externalSystem.model.DataNode
 import com.intellij.openapi.externalSystem.model.project.ModuleData
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.module.ModuleManager
-import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.psi.JavaPsiFacade
-import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.rt.coverage.data.ClassData
 import com.intellij.rt.coverage.data.LineData
 import com.intellij.rt.coverage.data.LineCoverage
@@ -41,37 +37,28 @@ import java.util.concurrent.TimeUnit
 class RunTestTool internal constructor(
     private val configCreator: (ConfigParams) -> String,
     private val executionLauncher: (String, String) -> ExecutionResult,
-    private val moduleResolver: (String, String?) -> Module
+    private val module: Module
 ) {
 
-    constructor(project: Project) : this(
+    constructor(project: Project, module: Module) : this(
         configCreator = { params ->
             val gradleData = GradleUtil.findGradleModuleData(params.module)
             if (gradleData != null) createGradleConfig(project, params, gradleData)
             else createJUnitConfig(project, params)
         },
         executionLauncher = { configName, packageName -> launchWithCoverage(project, configName, packageName) },
-        moduleResolver = { target, moduleName -> resolveModule(project, target, moduleName) }
+        module = module
     )
 
-    @ToolDefinition(name = TOOL_NAME, description = "Runs JUnit tests in the IDE")
     fun handle(
-        @Param(description = "Test scope: package, class, or method") scope: String,
-        @Param(description = "Target: package name, class FQN, or class#method") target: String,
-        @Param(description = "IntelliJ module name (optional)") moduleName: String?
+        scope: String,
+        target: String
     ): CallToolResult {
-        val testScope = SCOPE_BY_NAME[scope]
-            ?: return errorResult("Invalid scope '$scope'. Must be one of: ${SCOPE_BY_NAME.keys.joinToString()}")
-
-        if (target.isEmpty()) return errorResult("Target must not be empty")
-
-        if (testScope == TestScope.METHOD && '#' !in target)
-            return errorResult("Method scope requires target format 'com.example.MyTest#myMethod'")
+        val (testScope, error) = validateTestParams(scope, target)
+        if (error != null) return error
 
         return try {
-            val classOrPackageName = if (testScope == TestScope.METHOD) target.substringBefore('#') else target
-            val module = moduleResolver(classOrPackageName, moduleName)
-            val configName = configCreator(ConfigParams(testScope, target, module))
+            val configName = configCreator(ConfigParams(testScope!!, target, module))
             val packageName = resolvePackageName(testScope, target)
             val result = executionLauncher(configName, packageName)
             val response = if (result.coverage != null)
@@ -80,6 +67,7 @@ class RunTestTool internal constructor(
                 result.testOutput
             CallToolResult.builder()
                 .addContent(TextContent(response))
+                .isError(result.failed)
                 .build()
         } catch (e: IllegalArgumentException) {
             errorResult(e.message ?: "Unknown error")
@@ -87,8 +75,6 @@ class RunTestTool internal constructor(
             errorResult("Failed to launch configuration: ${e.message}")
         }
     }
-
-    fun registration() = ReflectiveToolAdapter(this, ::handle).toRegistration()
 
     data class ConfigParams(
         val scope: TestScope,
@@ -103,6 +89,7 @@ class RunTestTool internal constructor(
 
 data class ExecutionResult(
     val testOutput: String,
+    val failed: Boolean,
     val coverage: PackageCoverage?
 )
 
@@ -123,9 +110,12 @@ data class ClassCoverage(
     val coveredBranches: Int
 )
 
-internal fun extractTestResults(console: Any?, configName: String, exitCode: Int, processOutput: String): String {
-    if (console == null) return fallbackMessage(configName, exitCode, processOutput)
-    val root = tryGetTestRoot(console) ?: return fallbackMessage(configName, exitCode, processOutput)
+internal data class TestRunSummary(val output: String, val failed: Boolean)
+
+internal fun extractTestResults(console: Any?, configName: String, exitCode: Int, processOutput: String): TestRunSummary {
+    if (console == null) return TestRunSummary(fallbackMessage(configName, exitCode, processOutput), exitCode != 0)
+    val root = tryGetTestRoot(console)
+        ?: return TestRunSummary(fallbackMessage(configName, exitCode, processOutput), exitCode != 0)
     return formatTestResults(configName, root, exitCode)
 }
 
@@ -168,7 +158,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
         ?: throw IllegalStateException("Configuration is not a RunConfigurationBase")
     CoverageEnabledConfiguration.getOrCreate(runConfig)
 
-    val testResultFuture = CompletableFuture<String>()
+    val testResultFuture = CompletableFuture<TestRunSummary>()
     val coverageFuture = CompletableFuture<PackageCoverage?>()
 
     val coverageDisposable = Disposer.newDisposable("coverage-listener-$configName")
@@ -208,10 +198,10 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
                 override fun processTerminated(event: ProcessEvent) {
                     try {
                         val console = capturedConsole ?: findConsole(project, configName)
-                        val summary = extractTestResults(console, configName, event.exitCode, processOutput.toString())
-                        testResultFuture.complete(summary)
+                        testResultFuture.complete(extractTestResults(console, configName, event.exitCode, processOutput.toString()))
                     } catch (e: Exception) {
-                        testResultFuture.complete(fallbackMessage(configName, event.exitCode, processOutput.toString()))
+                        val fallback = fallbackMessage(configName, event.exitCode, processOutput.toString())
+                        testResultFuture.complete(TestRunSummary(fallback, event.exitCode != 0))
                     } finally {
                         connection.disconnect()
                     }
@@ -230,7 +220,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
         }
     }
 
-    val testOutput = try {
+    val testSummary = try {
         testResultFuture.get(TEST_TIMEOUT_MINUTES, TimeUnit.MINUTES)
     } catch (e: Exception) {
         disposeSafely(coverageDisposable)
@@ -244,7 +234,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
         null
     }
 
-    return ExecutionResult(testOutput, coverage)
+    return ExecutionResult(testSummary.output, testSummary.failed, coverage)
 }
 
 private fun extractPackageCoverage(projectData: ProjectData, packageName: String): PackageCoverage {
@@ -325,17 +315,23 @@ private fun tryUnwrapConsole(console: Any): Any? = try {
     null
 }
 
-private fun formatTestResults(configName: String, root: AbstractTestProxy, exitCode: Int): String {
-    val allTests = root.allTests
-    val passed = allTests.count { it.isPassed }
-    val failed = allTests.count { it.isDefect }
-    val ignored = allTests.count { !it.isPassed && !it.isDefect }
+private fun formatTestResults(configName: String, root: AbstractTestProxy, exitCode: Int): TestRunSummary {
+    val leafTests = root.allTests.filter { it.isLeaf && it !== root }
+    val passed = leafTests.count { it.isPassed }
+    val failed = leafTests.count { it.isDefect }
+    val ignored = leafTests.count { !it.isPassed && !it.isDefect }
+    val runFailed = failed > 0 || exitCode != 0
 
     val sb = StringBuilder()
     sb.appendLine("Test run '$configName' completed (exit code $exitCode)")
-    sb.appendLine("Total: ${allTests.size}, Passed: $passed, Failed: $failed, Ignored: $ignored")
+    sb.appendLine("Total: ${leafTests.size}, Passed: $passed, Failed: $failed, Ignored: $ignored")
 
-    val failures = allTests.filter { it.isDefect }
+    if (exitCode != 0 && failed == 0) {
+        sb.appendLine()
+        sb.appendLine("WARNING: non-zero exit code ($exitCode) with no test failures — the test process may have crashed or failed to start.")
+    }
+
+    val failures = leafTests.filter { it.isDefect }
     if (failures.isNotEmpty()) {
         sb.appendLine()
         sb.appendLine("Failures:")
@@ -353,7 +349,7 @@ private fun formatTestResults(configName: String, root: AbstractTestProxy, exitC
         }
     }
 
-    return sb.toString().trimEnd()
+    return TestRunSummary(sb.toString().trimEnd(), runFailed)
 }
 
 private fun fallbackMessage(configName: String, exitCode: Int, processOutput: String): String {
@@ -365,32 +361,6 @@ private fun fallbackMessage(configName: String, exitCode: Int, processOutput: St
         sb.append(trimmed)
     }
     return sb.toString()
-}
-
-private fun resolveModule(project: Project, target: String, moduleName: String?): Module {
-    val moduleManager = ModuleManager.getInstance(project)
-
-    if (moduleName != null) {
-        return moduleManager.findModuleByName(moduleName)
-            ?: throw IllegalArgumentException(
-                "Module '$moduleName' not found. Available modules: ${availableModuleNames(moduleManager)}"
-            )
-    }
-
-    return com.intellij.openapi.application.ReadAction.compute<Module, Exception> {
-        val facade = JavaPsiFacade.getInstance(project)
-        val scope = GlobalSearchScope.projectScope(project)
-
-        val psiElement = facade.findClass(target, scope)
-            ?: facade.findPackage(target)
-            ?: throw IllegalArgumentException("Could not find '$target' in any module")
-
-        ModuleUtilCore.findModuleForPsiElement(psiElement)
-            ?: throw IllegalArgumentException(
-                "Found '$target' but could not determine its module. " +
-                    "Available modules: ${availableModuleNames(moduleManager)}"
-            )
-    }
 }
 
 private fun createJUnitConfig(project: Project, params: RunTestTool.ConfigParams): String {
@@ -456,7 +426,6 @@ private fun createGradleConfig(
     return configName
 }
 
-private const val TOOL_NAME = "run_test"
 private const val TEST_TIMEOUT_MINUTES = 10L
 private const val COVERAGE_TIMEOUT_SECONDS = 60L
 private const val GRADLE_TEST_TASK = "test"
@@ -469,6 +438,20 @@ private const val GRADLE_TEST_TASK = "test"
 internal fun gradleTestTaskName(gradleProjectId: String) =
     if (gradleProjectId.startsWith(":")) "$gradleProjectId:$GRADLE_TEST_TASK"
     else ":$GRADLE_TEST_TASK"
+
+internal data class ValidationResult(val scope: RunTestTool.TestScope?, val error: CallToolResult?)
+
+internal fun validateTestParams(scope: String, target: String): ValidationResult {
+    val testScope = SCOPE_BY_NAME[scope]
+        ?: return ValidationResult(null, errorResult("Invalid scope '$scope'. Must be one of: ${SCOPE_BY_NAME.keys.joinToString()}"))
+
+    if (target.isEmpty()) return ValidationResult(null, errorResult("Target must not be empty"))
+
+    if (testScope == RunTestTool.TestScope.METHOD && '#' !in target)
+        return ValidationResult(null, errorResult("Method scope requires target format 'com.example.MyTest#myMethod'"))
+
+    return ValidationResult(testScope, null)
+}
 
 private val SCOPE_BY_NAME = RunTestTool.TestScope.entries.associateBy { it.name.lowercase() }
 
@@ -513,6 +496,3 @@ private val FRAMEWORK_PACKAGE_PREFIXES = listOf(
     "org.gradle.",
     "worker.org.gradle."
 )
-
-private fun availableModuleNames(moduleManager: ModuleManager) =
-    moduleManager.modules.map { it.name }.sorted().joinToString()

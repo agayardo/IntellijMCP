@@ -51,6 +51,6 @@
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="ca.artemgm.developmentmcp.protocol.CommandProtocolStartupActivity"/>
-        <projectService serviceImplementation="ca.artemgm.developmentmcp.protocol.CommandProtocolService"/>
+        <applicationService serviceImplementation="ca.artemgm.developmentmcp.protocol.CommandProtocolService"/>
     </extensions>
 </idea-plugin>

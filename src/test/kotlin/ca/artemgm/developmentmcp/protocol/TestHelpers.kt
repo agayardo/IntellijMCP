@@ -1,8 +1,11 @@
 package ca.artemgm.developmentmcp.protocol
 
+import com.intellij.openapi.module.Module
+import com.intellij.openapi.project.Project
 import io.modelcontextprotocol.json.McpJsonDefaults
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import io.modelcontextprotocol.spec.McpSchema.TextContent
+import java.lang.reflect.Proxy
 
 internal class ProcessorFixture {
     val registry = ActionRegistry().apply { register(HelloWorldTool {}.registration()) }
@@ -26,3 +29,32 @@ internal fun toolRegistration(
     description: String = "desc",
     inputSchema: String = "{}"
 ) = ToolRegistration(name, description, inputSchema) { IRRELEVANT_RESULT }
+
+internal fun textOf(result: CallToolResult) =
+    (result.content.first() as TextContent).text
+
+internal fun stubModule(name: String = "stub-module"): Module = Proxy.newProxyInstance(
+    Module::class.java.classLoader,
+    arrayOf(Module::class.java)
+) { _, method, _ ->
+    if (method.name == "getName") name else null
+} as Module
+
+internal fun stubProject(name: String = "StubProject"): Project = Proxy.newProxyInstance(
+    Project::class.java.classLoader,
+    arrayOf(Project::class.java)
+) { proxy, method, args ->
+    when (method.name) {
+        "getName" -> name
+        "hashCode" -> System.identityHashCode(proxy)
+        "equals" -> proxy === args?.get(0)
+        "toString" -> "StubProject($name)"
+        else -> null
+    }
+} as Project
+
+internal fun stubTool(module: Module) = RunTestTool(
+    configCreator = { "stub" },
+    executionLauncher = { _, _ -> ExecutionResult("ok", false, null) },
+    module = module
+)

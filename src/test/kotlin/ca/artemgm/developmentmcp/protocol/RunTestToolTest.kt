@@ -1,12 +1,8 @@
 package ca.artemgm.developmentmcp.protocol
 
-import com.intellij.openapi.module.Module
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult
-import io.modelcontextprotocol.spec.McpSchema.TextContent
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
-import java.lang.reflect.Proxy
 
 class RunTestToolTest {
 
@@ -18,49 +14,17 @@ class RunTestToolTest {
         configCreator = { params -> capturedParams = params; "RunTest-stub" },
         executionLauncher = { name, _ ->
             launcherConfigName = name
-            ExecutionResult("Total: 1, Passed: 1, Failed: 0", null)
+            ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null)
         },
-        moduleResolver = { _, _ -> stubModule }
+        module = stubModule
     )
-
-    @Nested
-    inner class Schema {
-
-        private val schema = parseSchema(tool.registration())
-
-        @Test
-        fun `registration name is run_test`() {
-            assertThat(tool.registration().name).isEqualTo("run_test")
-        }
-
-        @Test
-        fun `scope is required in schema`() {
-            assertThat(schemaProperty(schema, "scope")["type"]).isEqualTo("string")
-            assertThat(requiredParams()).contains("scope")
-        }
-
-        @Test
-        fun `target is required in schema`() {
-            assertThat(schemaProperty(schema, "target")["type"]).isEqualTo("string")
-            assertThat(requiredParams()).contains("target")
-        }
-
-        @Test
-        fun `moduleName is optional in schema`() {
-            assertThat(schemaProperty(schema, "moduleName")["type"]).isEqualTo("string")
-            assertThat(requiredParams()).doesNotContain("moduleName")
-        }
-
-        @Suppress("UNCHECKED_CAST")
-        private fun requiredParams() = schema["required"] as List<String>
-    }
 
     @Nested
     inner class Validation {
 
         @Test
         fun `unrecognized scope produces error listing valid values`() {
-            val result = tool.handle("bogus", "com.example", null)
+            val result = tool.handle("bogus", "com.example")
 
             assertThat(textOf(result)).contains("package", "class", "method")
             assertThat(result.isError).isTrue()
@@ -68,7 +32,7 @@ class RunTestToolTest {
 
         @Test
         fun `empty target produces error`() {
-            val result = tool.handle("class", "", null)
+            val result = tool.handle("class", "")
 
             assertThat(textOf(result)).containsIgnoringCase("target")
             assertThat(result.isError).isTrue()
@@ -76,7 +40,7 @@ class RunTestToolTest {
 
         @Test
         fun `method scope without hash separator produces error`() {
-            val result = tool.handle("method", "com.example.MyTest", null)
+            val result = tool.handle("method", "com.example.MyTest")
 
             assertThat(textOf(result)).contains("#")
             assertThat(result.isError).isTrue()
@@ -88,7 +52,7 @@ class RunTestToolTest {
 
         @Test
         fun `package scope passes PACKAGE scope to config creator`() {
-            tool.handle("package", "com.example.tests", null)
+            tool.handle("package", "com.example.tests")
 
             assertThat(capturedParams!!.scope).isEqualTo(RunTestTool.TestScope.PACKAGE)
             assertThat(capturedParams!!.target).isEqualTo("com.example.tests")
@@ -96,7 +60,7 @@ class RunTestToolTest {
 
         @Test
         fun `class scope passes CLASS scope to config creator`() {
-            tool.handle("class", "com.example.MyTest", null)
+            tool.handle("class", "com.example.MyTest")
 
             assertThat(capturedParams!!.scope).isEqualTo(RunTestTool.TestScope.CLASS)
             assertThat(capturedParams!!.target).isEqualTo("com.example.MyTest")
@@ -104,43 +68,15 @@ class RunTestToolTest {
 
         @Test
         fun `method scope passes METHOD scope and full target to config creator`() {
-            tool.handle("method", "com.example.MyTest#testFoo", null)
+            tool.handle("method", "com.example.MyTest#testFoo")
 
             assertThat(capturedParams!!.scope).isEqualTo(RunTestTool.TestScope.METHOD)
             assertThat(capturedParams!!.target).isEqualTo("com.example.MyTest#testFoo")
         }
 
         @Test
-        fun `method scope resolves module using class name before hash`() {
-            var resolvedTarget: String? = null
-            val tool = RunTestTool(
-                configCreator = { "stub" },
-                executionLauncher = { _, _ -> ExecutionResult("ok", null) },
-                moduleResolver = { target, _ -> resolvedTarget = target; stubModule }
-            )
-
-            tool.handle("method", "com.example.MyTest#testFoo", null)
-
-            assertThat(resolvedTarget).isEqualTo("com.example.MyTest")
-        }
-
-        @Test
-        fun `module resolution failure produces error`() {
-            val tool = RunTestTool(
-                configCreator = { "stub" },
-                executionLauncher = { _, _ -> ExecutionResult("ok", null) },
-                moduleResolver = { _, _ -> throw IllegalArgumentException("Could not find 'com.example.Missing' in any module") }
-            )
-
-            val result = tool.handle("class", "com.example.Missing", null)
-
-            assertThat(textOf(result)).contains("Could not find", "com.example.Missing")
-            assertThat(result.isError).isTrue()
-        }
-
-        @Test
         fun `successful invocation includes test results in response`() {
-            val result = tool.handle("class", "com.example.MyTest", null)
+            val result = tool.handle("class", "com.example.MyTest")
 
             assertThat(textOf(result)).contains("Total: 1, Passed: 1, Failed: 0")
             assertThat(result.isError).isFalse()
@@ -151,10 +87,10 @@ class RunTestToolTest {
             val tool = RunTestTool(
                 configCreator = { "stub" },
                 executionLauncher = { _, _ -> throw RuntimeException("connection refused") },
-                moduleResolver = { _, _ -> stubModule }
+                module = stubModule
             )
 
-            val result = tool.handle("class", "com.example.MyTest", null)
+            val result = tool.handle("class", "com.example.MyTest")
 
             assertThat(textOf(result)).contains("connection refused")
             assertThat(result.isError).isTrue()
@@ -162,7 +98,7 @@ class RunTestToolTest {
 
         @Test
         fun `injected dependencies are used instead of real APIs`() {
-            tool.handle("class", "com.example.MyTest", null)
+            tool.handle("class", "com.example.MyTest")
 
             assertThat(capturedParams).isNotNull
             assertThat(launcherConfigName).isEqualTo("RunTest-stub")
@@ -170,25 +106,26 @@ class RunTestToolTest {
     }
 
     @Nested
-    inner class ModuleName {
-
-        private var capturedModuleName: String? = null
-        private val tool = RunTestTool(
-            configCreator = { "stub" },
-            executionLauncher = { _, _ -> ExecutionResult("ok", null) },
-            moduleResolver = { _, moduleName -> capturedModuleName = moduleName; stubModule }
-        )
+    inner class FailureFlag {
 
         @Test
-        fun `moduleName is forwarded to module resolver`() {
-            tool.handle("class", "com.example.MyTest", "my-module")
-            assertThat(capturedModuleName).isEqualTo("my-module")
+        fun `failed execution result sets isError on tool response`() {
+            val tool = RunTestTool(
+                configCreator = { "stub" },
+                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 0, Failed: 1", true, null) },
+                module = stubModule
+            )
+
+            val result = tool.handle("class", "com.example.MyTest")
+
+            assertThat(result.isError).isTrue()
         }
 
         @Test
-        fun `null moduleName is forwarded when omitted`() {
-            tool.handle("class", "com.example.MyTest", null)
-            assertThat(capturedModuleName).isNull()
+        fun `successful execution result does not set isError`() {
+            val result = tool.handle("class", "com.example.MyTest")
+
+            assertThat(result.isError).isFalse()
         }
     }
 
@@ -210,11 +147,11 @@ class RunTestToolTest {
             )
             val tool = RunTestTool(
                 configCreator = { "stub" },
-                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", coverage) },
-                moduleResolver = { _, _ -> stubModule }
+                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, coverage) },
+                module = stubModule
             )
 
-            val result = tool.handle("class", "com.example.MyTest", null)
+            val result = tool.handle("class", "com.example.MyTest")
 
             val text = textOf(result)
             assertThat(text).contains("Coverage for package 'com.example':")
@@ -226,7 +163,7 @@ class RunTestToolTest {
 
         @Test
         fun `response omits coverage section when execution returns null coverage`() {
-            val result = tool.handle("class", "com.example.MyTest", null)
+            val result = tool.handle("class", "com.example.MyTest")
 
             val text = textOf(result)
             assertThat(text).doesNotContain("Coverage")
@@ -268,21 +205,21 @@ class RunTestToolTest {
         private fun runWithCoverage(coverage: PackageCoverage): String {
             val tool = RunTestTool(
                 configCreator = { "stub" },
-                executionLauncher = { _, _ -> ExecutionResult("ok", coverage) },
-                moduleResolver = { _, _ -> stubModule }
+                executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) },
+                module = stubModule
             )
-            return textOf(tool.handle("class", "com.example.MyTest", null))
+            return textOf(tool.handle("class", "com.example.MyTest"))
         }
 
         private fun assertPackagePassedToLauncher(scope: String, target: String, expectedPackage: String) {
             var capturedPackage: String? = null
             val tool = RunTestTool(
                 configCreator = { "stub" },
-                executionLauncher = { _, pkg -> capturedPackage = pkg; ExecutionResult("ok", null) },
-                moduleResolver = { _, _ -> stubModule }
+                executionLauncher = { _, pkg -> capturedPackage = pkg; ExecutionResult("ok", false, null) },
+                module = stubModule
             )
 
-            tool.handle(scope, target, null)
+            tool.handle(scope, target)
 
             assertThat(capturedPackage).isEqualTo(expectedPackage)
         }
@@ -306,11 +243,3 @@ class GradleTestTaskNameTest {
         assertThat(gradleTestTaskName(":parent:child")).isEqualTo(":parent:child:test")
     }
 }
-
-private fun textOf(result: CallToolResult) =
-    (result.content.first() as TextContent).text
-
-private fun stubModule(): Module = Proxy.newProxyInstance(
-    Module::class.java.classLoader,
-    arrayOf(Module::class.java)
-) { _, _, _ -> null } as Module

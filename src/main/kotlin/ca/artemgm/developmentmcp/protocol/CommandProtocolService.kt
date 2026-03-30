@@ -5,14 +5,13 @@ import ca.artemgm.protocol.PROTOCOL_DIR
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.project.Project
 import io.modelcontextprotocol.json.McpJsonDefaults
 import io.modelcontextprotocol.spec.McpSchema
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicBoolean
 
-@Service(Service.Level.PROJECT)
-class CommandProtocolService(private val project: Project) : Disposable {
+@Service(Service.Level.APP)
+class CommandProtocolService : Disposable {
 
     fun initialize() {
         if (!initialized.compareAndSet(false, true)) return
@@ -24,7 +23,7 @@ class CommandProtocolService(private val project: Project) : Disposable {
         Files.createDirectories(PROTOCOL_DIR)
 
         actionRegistry.register(HelloWorldTool().registration())
-        actionRegistry.register(RunTestTool(project).registration())
+        actionRegistry.register(runTestRegistration(ProjectResolver()))
 
         Files.writeString(PROTOCOL_DIR.resolve("schema.json"), buildSchemaJson(actionRegistry))
 
@@ -41,7 +40,7 @@ class CommandProtocolService(private val project: Project) : Disposable {
     }
 
     companion object {
-        fun getInstance(project: Project): CommandProtocolService = project.service()
+        fun getInstance(): CommandProtocolService = service()
     }
 
     private val initialized = AtomicBoolean(false)

@@ -17,7 +17,8 @@ class ExtractTestResultsTest {
 
             val result = extractTestResults(console, "MyConfig", 0, "")
 
-            assertThat(result).contains("Passed: 2", "Failed: 0")
+            assertThat(result.output).contains("Passed: 1", "Failed: 0")
+            assertThat(result.failed).isFalse()
         }
 
         @Test
@@ -27,8 +28,9 @@ class ExtractTestResultsTest {
 
             val result = extractTestResults(console, "MyConfig", 1, "")
 
-            assertThat(result).contains("Failed: 1")
-            assertThat(result).contains("boom")
+            assertThat(result.output).contains("Failed: 1")
+            assertThat(result.output).contains("boom")
+            assertThat(result.failed).isTrue()
         }
     }
 
@@ -43,7 +45,7 @@ class ExtractTestResultsTest {
 
             val result = extractTestResults(wrapper, "MyConfig", 0, "")
 
-            assertThat(result).contains("Passed: 2", "Failed: 0")
+            assertThat(result.output).contains("Passed: 1", "Failed: 0")
         }
 
         @Test
@@ -54,8 +56,71 @@ class ExtractTestResultsTest {
 
             val result = extractTestResults(wrapper, "MyConfig", 1, "")
 
-            assertThat(result).contains("Failed: 1")
-            assertThat(result).contains("boom")
+            assertThat(result.output).contains("Failed: 1")
+            assertThat(result.output).contains("boom")
+        }
+    }
+
+    @Nested
+    inner class NonZeroExitCode {
+
+        @Test
+        fun `non-zero exit code with no failures includes warning`() {
+            val root = passingRoot()
+            val console = FakeConsoleView(root)
+
+            val result = extractTestResults(console, "MyConfig", 254, "")
+
+            assertThat(result.output).contains("WARNING")
+            assertThat(result.output).contains("254")
+            assertThat(result.failed).isTrue()
+        }
+
+        @Test
+        fun `non-zero exit code with failures omits warning`() {
+            val root = failingRoot()
+            val console = FakeConsoleView(root)
+
+            val result = extractTestResults(console, "MyConfig", 1, "")
+
+            assertThat(result.output).doesNotContain("WARNING")
+        }
+
+        @Test
+        fun `zero exit code with no failures omits warning`() {
+            val root = passingRoot()
+            val console = FakeConsoleView(root)
+
+            val result = extractTestResults(console, "MyConfig", 0, "")
+
+            assertThat(result.output).doesNotContain("WARNING")
+            assertThat(result.failed).isFalse()
+        }
+    }
+
+    @Nested
+    inner class EmptyTestSuite {
+
+        @Test
+        fun `empty root reports zero tests`() {
+            val root = emptyRoot()
+            val console = FakeConsoleView(root)
+
+            val result = extractTestResults(console, "MyConfig", 0, "")
+
+            assertThat(result.output).contains("Total: 0")
+        }
+
+        @Test
+        fun `empty root with non-zero exit code includes warning`() {
+            val root = emptyRoot()
+            val console = FakeConsoleView(root)
+
+            val result = extractTestResults(console, "MyConfig", 254, "")
+
+            assertThat(result.output).contains("Total: 0")
+            assertThat(result.output).contains("WARNING")
+            assertThat(result.failed).isTrue()
         }
     }
 
@@ -66,18 +131,26 @@ class ExtractTestResultsTest {
         fun `null console falls back to process output`() {
             val result = extractTestResults(null, "MyConfig", 1, "some gradle output")
 
-            assertThat(result).contains("some gradle output")
-            assertThat(result).doesNotContain("Total:")
+            assertThat(result.output).contains("some gradle output")
+            assertThat(result.output).doesNotContain("Total:")
+            assertThat(result.failed).isTrue()
         }
 
         @Test
         fun `console without getResultsViewer or getConsoleView falls back`() {
             val result = extractTestResults(Object(), "MyConfig", 0, "raw output")
 
-            assertThat(result).contains("raw output")
-            assertThat(result).doesNotContain("Total:")
+            assertThat(result.output).contains("raw output")
+            assertThat(result.output).doesNotContain("Total:")
+            assertThat(result.failed).isFalse()
         }
     }
+}
+
+private fun emptyRoot(): SMTestProxy {
+    val root = SMTestProxy("[root]", true, null)
+    root.setFinished()
+    return root
 }
 
 private fun passingRoot(): SMTestProxy {
