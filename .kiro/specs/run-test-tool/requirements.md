@@ -51,8 +51,9 @@ This feature adds a `run_test` MCP tool to the IntelliJ plugin that allows calle
 2. WHEN `scope` is `class`, THE Run_Test_Tool SHALL create a JUnit_Configuration with `TEST_OBJECT` set to `TEST_CLASS` and `MAIN_CLASS_NAME` set to the `target` value.
 3. WHEN `scope` is `method`, THE Run_Test_Tool SHALL create a JUnit_Configuration with `TEST_OBJECT` set to `TEST_METHOD`, `MAIN_CLASS_NAME` set to the class portion of `target` (before `#`), and `METHOD_NAME` set to the method portion of `target` (after `#`).
 4. THE Run_Test_Tool SHALL create the JUnit_Configuration as a temporary run configuration via Run_Manager.
-5. WHEN `moduleName` is provided, THE Run_Test_Tool SHALL set the JUnit_Configuration module to the module matching `moduleName`.
-6. IF the provided `moduleName` does not match any module in the project, THEN THE Run_Test_Tool SHALL return an error result listing the available module names.
+5. THE Run_Test_Tool SHALL autodetect the module by resolving the target class or package via PSI lookup (`JavaPsiFacade` and `ModuleUtilCore`).
+6. WHEN `moduleName` is provided, THE Run_Test_Tool SHALL use the named module instead of PSI autodetection.
+7. IF the provided `moduleName` does not match any module in the project, THEN THE Run_Test_Tool SHALL return an error result listing the available module names.
 
 ### Requirement 4: Test Execution
 

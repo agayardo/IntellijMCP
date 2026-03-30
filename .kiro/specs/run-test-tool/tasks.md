@@ -30,7 +30,7 @@ Add a `run_test` MCP tool to the IntelliJ plugin that launches JUnit tests by sc
     - On validation success: resolve module, create config via `configCreator`, launch via `executionLauncher`, return success with config name
     - On any failure: return error `CallToolResult` with descriptive message
     - `registration()` method delegating to `ReflectiveToolAdapter`
-    - _Requirements: 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2, 4.3, 6.1, 6.2, 6.3_
+    - _Requirements: 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 6.1, 6.2, 6.3_
 
   - [x] 2.3 Implement default `createJUnitConfig`, `launchConfig`, and `resolveModule` functions
     - `createJUnitConfig`: creates temporary `JUnitConfiguration` via `RunManager` with correct `TEST_OBJECT`, target fields, and module
@@ -65,7 +65,7 @@ Add a `run_test` MCP tool to the IntelliJ plugin that launches JUnit tests by sc
     - `package scope passes PACKAGE scope to config creator` — **Property 3** — _Validates: Requirements 3.1_
     - `class scope passes CLASS scope to config creator` — **Property 3** — _Validates: Requirements 3.2_
     - `method scope passes METHOD scope and full target to config creator` — **Property 3** — _Validates: Requirements 3.3_
-    - `unknown module name produces error listing available modules` — **Property 4** — _Validates: Requirements 3.6_
+    - `unknown module name produces error listing available modules` — **Property 4** — _Validates: Requirements 3.6, 3.7_
     - `successful invocation includes configuration name in result` — **Property 5** — _Validates: Requirements 4.1, 4.2_
     - `execution launcher failure produces error with reason` — **Property 6** — _Validates: Requirements 4.3_
     - `injected dependencies are used instead of real APIs` — _Validates: Requirements 6.3_

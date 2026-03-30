@@ -2,7 +2,7 @@
 
 ## Overview
 
-This design describes the `run_test` MCP tool that allows callers to programmatically launch JUnit tests inside IntelliJ. The tool accepts a test scope (`package`, `class`, or `method`), a target identifier, and an optional module name, then creates a `JUnitConfiguration` via `RunManager` and launches it through `ExecutionManager`.
+This design describes the `run_test` MCP tool that allows callers to programmatically launch JUnit tests inside IntelliJ. The tool accepts a test scope (`package`, `class`, or `method`), a target identifier, and an optional module name, then resolves the module — either by name when provided, or via PSI-based autodetection as the default — creates a run configuration via `RunManager`, and launches it through `ExecutionManager`.
 
 The tool follows the established `HelloWorldTool` pattern: a Kotlin class with `@ToolDefinition`/`@Param` annotations on a `handle()` method, a `registration()` method that delegates to `ReflectiveToolAdapter`, and registration in `CommandProtocolService.initialize()`. An internal constructor accepts functional dependencies for testability, while the no-arg constructor wires in real IntelliJ APIs.
 
@@ -52,7 +52,7 @@ graph TD
 2. `RequestProcessor` dispatches to `RunTestTool.handle()` via `ActionRegistry`.
 3. `handle()` validates parameters (scope value, target format, non-empty target).
 4. On validation failure, returns an error `CallToolResult` immediately.
-5. On success, invokes the `configCreator` function to build a `JUnitConfiguration` and the `executionLauncher` function to launch it.
+5. On success, resolves the module (by name if `moduleName` is provided, otherwise via PSI autodetection), invokes the `configCreator` function to build a run configuration, and the `executionLauncher` function to launch it.
 6. Returns a success `CallToolResult` with the configuration name.
 
 ### Threading Model
@@ -169,16 +169,29 @@ private fun launchConfig(
 ### 5. Module Resolver (default implementation)
 
 ```kotlin
-private fun resolveModule(project: Project, moduleName: String?): Module {
+private fun resolveModule(project: Project, target: String, moduleName: String?): Module {
     val moduleManager = ModuleManager.getInstance(project)
-    return if (moduleName != null) {
-        moduleManager.findModuleByName(moduleName)
+
+    if (moduleName != null) {
+        return moduleManager.findModuleByName(moduleName)
             ?: throw IllegalArgumentException(
-                "Module '$moduleName' not found. Available: ${moduleManager.modules.map { it.name }}"
+                "Module '$moduleName' not found. Available modules: ${availableModuleNames(moduleManager)}"
             )
-    } else {
-        moduleManager.modules.firstOrNull()
-            ?: throw IllegalStateException("No modules found in project")
+    }
+
+    return ReadAction.compute<Module, Exception> {
+        val facade = JavaPsiFacade.getInstance(project)
+        val scope = GlobalSearchScope.projectScope(project)
+
+        val psiElement = facade.findClass(target, scope)
+            ?: facade.findPackage(target)
+            ?: throw IllegalArgumentException("Could not find '$target' in any module")
+
+        ModuleUtilCore.findModuleForPsiElement(psiElement)
+            ?: throw IllegalArgumentException(
+                "Found '$target' but could not determine its module. " +
+                    "Available modules: ${availableModuleNames(moduleManager)}"
+            )
     }
 }
 ```
@@ -264,7 +277,8 @@ Note: `moduleName` is nullable in Kotlin, so `ReflectiveToolAdapter` excludes it
 | Invalid scope | `"Invalid scope 'foo'. Must be one of: package, class, method"` |
 | Empty target | `"Target must not be empty"` |
 | Method scope without `#` | `"Method scope requires target format 'com.example.MyTest#myMethod'"` |
-| Module not found | `"Module 'bad-name' not found. Available: [mod-a, mod-b]"` |
+| Module not found (by name) | `"Module '<name>' not found. Available modules: ..."` |
+| Module not found (by PSI) | `"Could not find '<target>' in any module"` |
 | Execution failure | `"Failed to launch configuration: <reason>"` |
 
 
@@ -291,11 +305,11 @@ Note: `moduleName` is nullable in Kotlin, so `ReflectiveToolAdapter` excludes it
 
 **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5**
 
-### Property 4: Unknown module name produces error listing available modules
+### Property 4: Module resolution (explicit name or autodetection)
 
-*For any* module name that does not match any module in the project, invoking `run_test` with that `moduleName` should return a `CallToolResult` with `isError=true` and content that lists the available module names.
+*When* `moduleName` is provided, the tool should resolve the module by name. *When* `moduleName` is omitted, the tool should autodetect the module via PSI lookup. If the module cannot be resolved by either path, the tool should return a `CallToolResult` with `isError=true` and content that describes the failure.
 
-**Validates: Requirements 3.6**
+**Validates: Requirements 3.5**
 
 ### Property 5: Valid invocation returns success with configuration name
 
@@ -325,8 +339,8 @@ All validation errors return a `CallToolResult` with `isError=true` immediately,
 
 | Condition | Error Message Pattern |
 |---|---|
-| Named module not found | `"Module '<name>' not found. Available: [mod-a, mod-b]"` |
-| No modules in project (no moduleName given) | `"No modules found in project"` |
+| Named module not found | `"Module '<name>' not found. Available modules: ..."` |
+| PSI target not found | `"Could not find '<target>' in any module"` |
 
 ### Execution Errors
 

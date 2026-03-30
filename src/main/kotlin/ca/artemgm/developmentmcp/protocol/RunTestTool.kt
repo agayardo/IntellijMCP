@@ -18,6 +18,7 @@ import com.intellij.execution.testframework.AbstractTestProxy
 import com.intellij.openapi.externalSystem.model.DataNode
 import com.intellij.openapi.externalSystem.model.project.ModuleData
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
@@ -40,7 +41,7 @@ import java.util.concurrent.TimeUnit
 class RunTestTool internal constructor(
     private val configCreator: (ConfigParams) -> String,
     private val executionLauncher: (String, String) -> ExecutionResult,
-    private val moduleResolver: (String) -> Module
+    private val moduleResolver: (String, String?) -> Module
 ) {
 
     constructor(project: Project) : this(
@@ -50,13 +51,14 @@ class RunTestTool internal constructor(
             else createJUnitConfig(project, params)
         },
         executionLauncher = { configName, packageName -> launchWithCoverage(project, configName, packageName) },
-        moduleResolver = { target -> resolveModule(project, target) }
+        moduleResolver = { target, moduleName -> resolveModule(project, target, moduleName) }
     )
 
     @ToolDefinition(name = TOOL_NAME, description = "Runs JUnit tests in the IDE")
     fun handle(
         @Param(description = "Test scope: package, class, or method") scope: String,
-        @Param(description = "Target: package name, class FQN, or class#method") target: String
+        @Param(description = "Target: package name, class FQN, or class#method") target: String,
+        @Param(description = "IntelliJ module name (optional)") moduleName: String?
     ): CallToolResult {
         val testScope = SCOPE_BY_NAME[scope]
             ?: return errorResult("Invalid scope '$scope'. Must be one of: ${SCOPE_BY_NAME.keys.joinToString()}")
@@ -68,7 +70,7 @@ class RunTestTool internal constructor(
 
         return try {
             val classOrPackageName = if (testScope == TestScope.METHOD) target.substringBefore('#') else target
-            val module = moduleResolver(classOrPackageName)
+            val module = moduleResolver(classOrPackageName, moduleName)
             val configName = configCreator(ConfigParams(testScope, target, module))
             val packageName = resolvePackageName(testScope, target)
             val result = executionLauncher(configName, packageName)
@@ -365,7 +367,16 @@ private fun fallbackMessage(configName: String, exitCode: Int, processOutput: St
     return sb.toString()
 }
 
-private fun resolveModule(project: Project, target: String): Module {
+private fun resolveModule(project: Project, target: String, moduleName: String?): Module {
+    val moduleManager = ModuleManager.getInstance(project)
+
+    if (moduleName != null) {
+        return moduleManager.findModuleByName(moduleName)
+            ?: throw IllegalArgumentException(
+                "Module '$moduleName' not found. Available modules: ${availableModuleNames(moduleManager)}"
+            )
+    }
+
     return com.intellij.openapi.application.ReadAction.compute<Module, Exception> {
         val facade = JavaPsiFacade.getInstance(project)
         val scope = GlobalSearchScope.projectScope(project)
@@ -375,7 +386,10 @@ private fun resolveModule(project: Project, target: String): Module {
             ?: throw IllegalArgumentException("Could not find '$target' in any module")
 
         ModuleUtilCore.findModuleForPsiElement(psiElement)
-            ?: throw IllegalArgumentException("Found '$target' but could not determine its module")
+            ?: throw IllegalArgumentException(
+                "Found '$target' but could not determine its module. " +
+                    "Available modules: ${availableModuleNames(moduleManager)}"
+            )
     }
 }
 
@@ -499,3 +513,6 @@ private val FRAMEWORK_PACKAGE_PREFIXES = listOf(
     "org.gradle.",
     "worker.org.gradle."
 )
+
+private fun availableModuleNames(moduleManager: ModuleManager) =
+    moduleManager.modules.map { it.name }.sorted().joinToString()

@@ -47,12 +47,9 @@
     <depends>Coverage</depends>
     <depends optional="true" config-file="gradle-support.xml">com.intellij.gradle</depends>
 
-    <resource-bundle>messages.MyMessageBundle</resource-bundle>
     <!-- Extensions defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="MyToolWindow" factoryClass="ca.artemgm.developmentmcp.MyToolWindowFactory"
-                    icon="AllIcons.Toolwindows.ToolWindowPalette"/>
         <postStartupActivity implementation="ca.artemgm.developmentmcp.protocol.CommandProtocolStartupActivity"/>
         <projectService serviceImplementation="ca.artemgm.developmentmcp.protocol.CommandProtocolService"/>
     </extensions>
