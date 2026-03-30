@@ -4,6 +4,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import io.modelcontextprotocol.spec.McpSchema.TextContent
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -99,6 +100,44 @@ class FileProtocolTest {
             sender.sendRequest(freshRequest)
             assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue()
             return result.get()
+        }
+    }
+
+    @Nested
+    inner class RequestConsumptionTimeout {
+
+        private val senderWithZeroTimeout = FileProtocolClient(directory, Duration.ZERO)
+
+        @Test
+        fun `unconsumed request throws RequestNotConsumedException`() {
+            val id = senderWithZeroTimeout.sendRequest(CallToolRequest("ignored_tool", emptyMap()))
+
+            assertThatThrownBy { senderWithZeroTimeout.receiveResponse(id, Duration.ofSeconds(10)) }
+                .isInstanceOf(RequestNotConsumedException::class.java)
+                .hasMessageContaining(id.value)
+        }
+
+        @Test
+        fun `unconsumed request file is cleaned up on timeout`() {
+            val id = senderWithZeroTimeout.sendRequest(CallToolRequest("ignored_tool", emptyMap()))
+
+            runCatching { senderWithZeroTimeout.receiveResponse(id, Duration.ofSeconds(10)) }
+
+            assertThat(Files.exists(requestPath(directory, id))).isFalse()
+        }
+    }
+
+    @Nested
+    inner class EarlyRequestFileDeletion {
+
+        @Test
+        fun `request file is deleted before receiveRequest returns`() {
+            sender.sendRequest(CallToolRequest("any_tool", emptyMap()))
+
+            val received = receiver.receiveRequest()
+
+            assertThat(requestFileCount()).isZero()
+            assertThat(received.toolRequest.name()).isEqualTo("any_tool")
         }
     }
 

@@ -23,16 +23,21 @@ class FileProtocolServer internal constructor(
                 continue
             }
             val id = RequestId(requestFile.fileName.toString().removeSuffix(REQUEST_SUFFIX))
+            val content = try {
+                Files.readString(requestFile)
+            } catch (e: Exception) {
+                throw RequestParseException(id, e)
+            } finally {
+                Files.deleteIfExists(requestFile)
+            }
             try {
                 @Suppress("UNCHECKED_CAST")
-                val envelope = mapper.readValue(Files.readString(requestFile), Map::class.java) as Map<String, Any?>
+                val envelope = mapper.readValue(content, Map::class.java) as Map<String, Any?>
                 val params = envelope["params"]
                     ?: throw IllegalArgumentException("Request JSON missing 'params' field")
                 return ReceivedRequest(id, mapper.convertValue(params, CallToolRequest::class.java))
             } catch (e: Exception) {
                 throw RequestParseException(id, e)
-            } finally {
-                Files.deleteIfExists(requestFile)
             }
         }
     }

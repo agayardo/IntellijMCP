@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardWatchEventKinds.ENTRY_CREATE
+import java.nio.file.StandardWatchEventKinds.ENTRY_DELETE
 import java.nio.file.StandardWatchEventKinds.OVERFLOW
 import java.time.Duration
 import java.time.Instant
@@ -59,6 +60,36 @@ internal fun waitForFile(directory: Path, deadline: Instant = Instant.MAX, match
         }
     }
     throw IllegalStateException("Timed out waiting for file")
+}
+
+internal fun waitForFileDeletion(file: Path, deadline: Instant) {
+    if (!Files.exists(file)) return
+
+    val directory = file.parent
+    val targetName = file.fileName.toString()
+    directory.fileSystem.newWatchService().use { ws ->
+        directory.register(ws, ENTRY_DELETE)
+
+        if (!Files.exists(file)) return
+
+        while (Instant.now().isBefore(deadline)) {
+            val remaining = Duration.between(Instant.now(), deadline)
+            if (remaining.isNegative) break
+            val key = ws.poll(remaining.toMillis(), TimeUnit.MILLISECONDS) ?: break
+            try {
+                for (event in key.pollEvents()) {
+                    if (event.kind() == OVERFLOW) {
+                        if (!Files.exists(file)) return
+                        continue
+                    }
+                    val filename = (event.context() as? Path)?.fileName?.toString() ?: continue
+                    if (filename == targetName) return
+                }
+            } finally {
+                key.reset()
+            }
+        }
+    }
 }
 
 internal fun writeAtomically(target: Path, content: String) {

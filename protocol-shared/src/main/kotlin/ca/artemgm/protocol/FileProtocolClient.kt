@@ -7,7 +7,12 @@ import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 
-class FileProtocolClient(private val directory: Path) {
+class FileProtocolClient internal constructor(
+    private val directory: Path,
+    private val consumptionTimeout: Duration
+) {
+
+    constructor(directory: Path) : this(directory, REQUEST_CONSUMPTION_TIMEOUT)
 
     fun sendRequest(request: CallToolRequest): RequestId {
         val id = RequestId.generate()
@@ -20,8 +25,10 @@ class FileProtocolClient(private val directory: Path) {
     }
 
     fun receiveResponse(id: RequestId, timeout: Duration): CallToolResult {
+        val now = Instant.now()
+        val deadline = now.plus(timeout)
+        waitForRequestConsumption(id, minOf(deadline, now.plus(consumptionTimeout)))
         val target = responsePath(directory, id)
-        val deadline = Instant.now().plus(timeout)
         waitForFile(directory, deadline) { it == target.fileName.toString() }
         try {
             return mapper.readValue(Files.readString(target), CallToolResult::class.java)
@@ -31,4 +38,22 @@ class FileProtocolClient(private val directory: Path) {
             Files.deleteIfExists(target)
         }
     }
+
+    private fun waitForRequestConsumption(id: RequestId, deadline: Instant) {
+        val requestFile = requestPath(directory, id)
+        if (!Files.exists(requestFile)) return
+        waitForFileDeletion(requestFile, deadline)
+        if (Files.exists(requestFile)) {
+            Files.deleteIfExists(requestFile)
+            throw RequestNotConsumedException(id)
+        }
+    }
 }
+
+class RequestNotConsumedException(id: RequestId) : RuntimeException(
+    "Request ${id.value} was not consumed by the server within $REQUEST_CONSUMPTION_TIMEOUT_MINUTES minutes. " +
+        "Is the IDE plugin running and connected?"
+)
+
+private const val REQUEST_CONSUMPTION_TIMEOUT_MINUTES = 5L
+private val REQUEST_CONSUMPTION_TIMEOUT = Duration.ofMinutes(REQUEST_CONSUMPTION_TIMEOUT_MINUTES)

@@ -62,10 +62,7 @@ class FileBridgeTest {
 
         bridge.call("cleanup_tool", emptyMap())
 
-        val tmpFiles = Files.list(commandDir).use { stream ->
-            stream.filter { it.fileName.toString().endsWith(".tmp") }.toList()
-        }
-        assertThat(tmpFiles).isEmpty()
+        assertThat(filesWithSuffix(".tmp")).isEmpty()
     }
 
     @Test
@@ -74,18 +71,18 @@ class FileBridgeTest {
 
         bridge.call("transient_tool", emptyMap())
 
-        val responseFiles = Files.list(commandDir).use { stream ->
-            stream.filter { it.fileName.toString().endsWith(".response.json") }.toList()
-        }
-        assertThat(responseFiles).isEmpty()
+        assertThat(filesWithSuffix(".response.json")).isEmpty()
     }
 
     @Test
-    fun `timeout throws when no response appears`() {
-        val shortTimeoutBridge = FileBridge(FileProtocolClient(commandDir), responseTimeout = Duration.ofMillis(100))
+    fun `unconsumed request fails with actionable error`() {
+        val noServerBridge = FileBridge(
+            FileProtocolClient(commandDir),
+            responseTimeout = Duration.ofMillis(200)
+        )
 
-        assertThatThrownBy { shortTimeoutBridge.call("ghost_tool", emptyMap()) }
-            .isInstanceOf(IllegalStateException::class.java)
+        assertThatThrownBy { noServerBridge.call("ghost_tool", emptyMap()) }
+            .hasMessageContaining("not consumed")
     }
 
     private fun startServer(handler: (String, Map<String, Any?>) -> CallToolResult) {
@@ -111,4 +108,8 @@ class FileBridgeTest {
             .content(listOf(TextContent(text)))
             .isError(false)
             .build()
+
+    private fun filesWithSuffix(suffix: String) = Files.list(commandDir).use { stream ->
+        stream.filter { it.fileName.toString().endsWith(suffix) }.toList()
+    }
 }

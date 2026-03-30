@@ -13,8 +13,29 @@
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
-        Enter short description for your plugin here.<br>
-        <em>most HTML tags may be used</em>
+        Exposes an MCP tool that lets AI assistants run tests with coverage directly inside IntelliJ IDEA.<br><br>
+
+        <b>Tool: <code>run_test</code></b><br>
+        Runs JUnit tests at package, class, or method scope and returns structured results with line and branch coverage.
+        Supports both Gradle and native JUnit run configurations.<br><br>
+
+        <b>Setup</b><br>
+        <ol>
+            <li>Build the project: <code>./gradlew buildPlugin :stdio-mcp-server:installDist</code></li>
+            <li>Install the plugin ZIP from <code>build/distributions/</code> into IntelliJ (or run <code>release.sh</code>)</li>
+            <li>Restart IntelliJ and open a project &mdash; the plugin starts automatically</li>
+            <li>Point your MCP client at the stdio bridge. Example <code>mcp.json</code>:</li>
+        </ol>
+        <pre>
+{
+  "mcpServers": {
+    "intellij-dev-mcp": {
+      "command": "&lt;project-path&gt;/stdio-mcp-server/build/install/stdio-mcp-server/bin/stdio-mcp-server",
+      "args": []
+    }
+  }
+}
+        </pre>
     ]]></description>
 
     <!-- Product and plugin compatibility requirements.
