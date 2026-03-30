@@ -24,35 +24,11 @@ AI Assistant  ──stdio──>  stdio-mcp-server  ──files──>  IntelliJ
 
 ## Installation
 
-### 1. Download the release artifacts
-
-Download both zip files from the [v1.0.0.0 release](https://github.com/agayardo/IntellijMCP/releases/tag/v1.0.0.0):
-
-- **DevelopmentMcp-plugin.zip** — the IntelliJ plugin
-- **stdio-mcp-server.zip** — the MCP stdio bridge
-
-### 2. Install the IntelliJ plugin
-
-1. Open IntelliJ IDEA
-2. Go to **Settings → Plugins → ⚙️ → Install Plugin from Disk...**
-3. Select the downloaded `DevelopmentMcp-plugin.zip` (do not unzip it)
-4. Restart IntelliJ
-
-### 3. Set up the stdio bridge
-
-Unzip `stdio-mcp-server.zip` to a location of your choice:
-
 ```bash
-unzip stdio-mcp-server.zip -d ~/tools/intellij-dev-mcp
+curl -fsSL https://raw.githubusercontent.com/agayardo/IntellijMCP/main/install.sh | bash
 ```
 
-The bridge executable will be at `~/tools/intellij-dev-mcp/stdio-mcp-server/bin/stdio-mcp-server`.
-
-Make sure it's executable:
-
-```bash
-chmod +x ~/tools/intellij-dev-mcp/stdio-mcp-server/bin/stdio-mcp-server
-```
+This downloads the latest release, installs the IntelliJ plugin, and sets up the stdio bridge at `~/.intellij-dev-mcp/bridge/`. Restart IntelliJ after running it.
 
 ## Configuration
 
@@ -66,22 +42,22 @@ Point your MCP client at the stdio bridge binary. The exact config depends on yo
 {
   "mcpServers": {
     "intellij-dev-mcp": {
-      "command": "~/tools/intellij-dev-mcp/stdio-mcp-server/bin/stdio-mcp-server",
+      "command": "~/.intellij-dev-mcp/bridge/bin/stdio-mcp-server",
       "args": []
     }
   }
 }
 ```
 
-Replace the path with wherever you unzipped the bridge.
-
 #### Claude Desktop (`claude_desktop_config.json`)
+
+Claude Desktop requires an absolute path (no `~`):
 
 ```json
 {
   "mcpServers": {
     "intellij-dev-mcp": {
-      "command": "/Users/you/tools/intellij-dev-mcp/stdio-mcp-server/bin/stdio-mcp-server"
+      "command": "/Users/you/.intellij-dev-mcp/bridge/bin/stdio-mcp-server"
     }
   }
 }
