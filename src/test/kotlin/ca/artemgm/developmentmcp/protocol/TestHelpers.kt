@@ -7,8 +7,10 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import io.modelcontextprotocol.spec.McpSchema.TextContent
 import java.lang.reflect.Proxy
 
+internal val ECHO_SCHEMA = """{"type":"object","properties":{"msg":{"type":"string"}}}"""
+
 internal class ProcessorFixture {
-    val registry = ActionRegistry().apply { register(HelloWorldTool {}.registration()) }
+    val registry = ActionRegistry().apply { register(toolRegistration("echo", inputSchema = ECHO_SCHEMA)) }
     val processor = RequestProcessor(registry)
 }
 

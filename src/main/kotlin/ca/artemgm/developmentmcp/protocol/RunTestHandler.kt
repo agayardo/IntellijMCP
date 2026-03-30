@@ -1,7 +1,6 @@
 package ca.artemgm.developmentmcp.protocol
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult
-import io.modelcontextprotocol.spec.McpSchema.TextContent
 
 class RunTestHandler internal constructor(
     private val contextResolver: (String, String?) -> ResolvedContext,
@@ -30,7 +29,11 @@ class RunTestHandler internal constructor(
             return errorResult(e.message ?: "Unknown error")
         }
 
-        return toolFactory(ctx).handle(scope, target)
+        return try {
+            toolFactory(ctx).handle(scope, target)
+        } catch (e: Exception) {
+            errorResult("Tool execution failed: ${e.exceptionSummary()}")
+        }
     }
 
     fun registration() = ReflectiveToolAdapter(this, ::handle).toRegistration()
@@ -38,10 +41,5 @@ class RunTestHandler internal constructor(
 
 internal fun runTestRegistration(projectResolver: ProjectResolver) =
     RunTestHandler(projectResolver).registration()
-
-private fun errorResult(message: String) = CallToolResult.builder()
-    .addContent(TextContent(message))
-    .isError(true)
-    .build()
 
 private const val TOOL_NAME = "run_test"

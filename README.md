@@ -1,109 +1,121 @@
-# IntelliJ Platform Plugin Template
+# IntelliJ Dev MCP
 
-[![Twitter Follow](https://img.shields.io/badge/follow-%40JBPlatform-1DA1F2?logo=twitter)](https://twitter.com/JBPlatform)
-[![Developers Forum](https://img.shields.io/badge/JetBrains%20Platform-Join-blue)][jb:forum]
+An IntelliJ IDEA plugin that exposes MCP (Model Context Protocol) tools, letting AI assistants run JUnit tests with coverage directly inside the IDE.
 
-## Plugin template structure
+## How it works
 
-A generated project contains the following content structure:
+The plugin runs inside IntelliJ and communicates with MCP clients through a stdio bridge process. The bridge (`stdio-mcp-server`) translates standard MCP stdio transport into a file-based protocol that the plugin watches from within the IDE. This means the AI assistant talks MCP over stdio to the bridge, and the bridge relays requests to the running IntelliJ instance.
 
 ```
-.
-├── .run/                   Predefined Run/Debug Configurations
-├── build/                  Output build directory
-├── gradle
-│   ├── wrapper/            Gradle Wrapper
-├── src                     Plugin sources
-│   ├── main
-│   │   ├── kotlin/         Kotlin production sources
-│   │   └── resources/      Resources - plugin.xml, icons, messages
-├── .gitignore              Git ignoring rules
-├── build.gradle.kts        Gradle build configuration
-├── gradle.properties       Gradle configuration properties
-├── gradlew                 *nix Gradle Wrapper script
-├── gradlew.bat             Windows Gradle Wrapper script
-├── README.md               README
-└── settings.gradle.kts     Gradle project settings
+AI Assistant  ──stdio──>  stdio-mcp-server  ──files──>  IntelliJ Plugin
 ```
 
-In addition to the configuration files, the most crucial part is the `src` directory, which contains our implementation and the manifest for our plugin – [plugin.xml][file:plugin.xml].
+## Available tools
 
-> [!NOTE]
-> To use Java in your plugin, create the `/src/main/java` directory.
+| Tool | Description |
+|------|-------------|
+| `run_test` | Runs JUnit tests at package, class, or method scope. Returns structured test results with line and branch coverage. Supports both Gradle and native JUnit run configurations. |
 
-## Plugin configuration file
+## Requirements
 
-The plugin configuration file is a [plugin.xml][file:plugin.xml] file located in the `src/main/resources/META-INF` directory.
-It provides general information about the plugin, its dependencies, extensions, and listeners.
+- IntelliJ IDEA 2025.2+ (build 252.25557 or later)
+- Java 21+
+- The following bundled plugins must be enabled in IntelliJ: Java, JUnit, Coverage
 
-You can read more about this file in the [Plugin Configuration File][docs:plugin.xml] section of our documentation.
+## Installation
 
-If you're still not quite sure what this is all about, read our introduction: [What is the IntelliJ Platform?][docs:intro]
+### 1. Download the release artifacts
 
-$H$H Predefined Run/Debug configurations
+Download both zip files from the [v1.0.0.0 release](https://github.com/agayardo/IntellijMCP/releases/tag/v1.0.0.0):
 
-Within the default project structure, there is a `.run` directory provided containing predefined *Run/Debug configurations* that expose corresponding Gradle tasks:
+- **DevelopmentMcp-plugin.zip** — the IntelliJ plugin
+- **stdio-mcp-server.zip** — the MCP stdio bridge
 
-| Configuration name | Description                                                                                                                                                                         |
-|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Run Plugin         | Runs [`:runIde`][gh:intellij-platform-gradle-plugin-runIde] IntelliJ Platform Gradle Plugin task. Use the *Debug* icon for plugin debugging.                                        |
-| Run Tests          | Runs [`:test`][gradle:lifecycle-tasks] Gradle task.                                                                                                                                 |
-| Run Verifications  | Runs [`:verifyPlugin`][gh:intellij-platform-gradle-plugin-verifyPlugin] IntelliJ Platform Gradle Plugin task to check the plugin compatibility against the specified IntelliJ IDEs. |
+### 2. Install the IntelliJ plugin
 
-> [!NOTE]
-> You can find the logs from the running task in the `idea.log` tab.
+1. Open IntelliJ IDEA
+2. Go to **Settings → Plugins → ⚙️ → Install Plugin from Disk...**
+3. Select the downloaded `DevelopmentMcp-plugin.zip` (do not unzip it)
+4. Restart IntelliJ
 
-## Publishing the plugin
+### 3. Set up the stdio bridge
 
-> [!TIP]
-> Make sure to follow all guidelines listed in [Publishing a Plugin][docs:publishing] to follow all recommended and required steps.
+Unzip `stdio-mcp-server.zip` to a location of your choice:
 
-Releasing a plugin to [JetBrains Marketplace](https://plugins.jetbrains.com) is a straightforward operation that uses the `publishPlugin` Gradle task provided by the [intellij-platform-gradle-plugin][gh:intellij-platform-gradle-plugin-docs].
+```bash
+unzip stdio-mcp-server.zip -d ~/tools/intellij-dev-mcp
+```
 
-You can also upload the plugin to the [JetBrains Plugin Repository](https://plugins.jetbrains.com/plugin/upload) manually via UI.
+The bridge executable will be at `~/tools/intellij-dev-mcp/stdio-mcp-server/bin/stdio-mcp-server`.
 
-## Useful links
+Make sure it's executable:
 
-- [IntelliJ Platform SDK Plugin SDK][docs]
-- [IntelliJ Platform Gradle Plugin Documentation][gh:intellij-platform-gradle-plugin-docs]
-- [IntelliJ Platform Explorer][jb:ipe]
-- [JetBrains Marketplace Quality Guidelines][jb:quality-guidelines]
-- [IntelliJ Platform UI Guidelines][jb:ui-guidelines]
-- [JetBrains Marketplace Paid Plugins][jb:paid-plugins]
-- [IntelliJ SDK Code Samples][gh:code-samples]
+```bash
+chmod +x ~/tools/intellij-dev-mcp/stdio-mcp-server/bin/stdio-mcp-server
+```
 
-[docs]: https://plugins.jetbrains.com/docs/intellij
+## Configuration
 
-[docs:intro]: https://plugins.jetbrains.com/docs/intellij/intellij-platform.html?from=IJPluginTemplate
+### MCP client configuration
 
-[docs:plugin.xml]: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html?from=IJPluginTemplate
+Point your MCP client at the stdio bridge binary. The exact config depends on your client.
 
-[docs:publishing]: https://plugins.jetbrains.com/docs/intellij/publishing-plugin.html?from=IJPluginTemplate
+#### Kiro / VS Code (`mcp.json`)
 
-[file:plugin.xml]: ./src/main/resources/META-INF/plugin.xml
+```json
+{
+  "mcpServers": {
+    "intellij-dev-mcp": {
+      "command": "~/tools/intellij-dev-mcp/stdio-mcp-server/bin/stdio-mcp-server",
+      "args": []
+    }
+  }
+}
+```
 
-[gh:code-samples]: https://github.com/JetBrains/intellij-sdk-code-samples
+Replace the path with wherever you unzipped the bridge.
 
-[gh:intellij-platform-gradle-plugin]: https://github.com/JetBrains/intellij-platform-gradle-plugin
+#### Claude Desktop (`claude_desktop_config.json`)
 
-[gh:intellij-platform-gradle-plugin-docs]: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
+```json
+{
+  "mcpServers": {
+    "intellij-dev-mcp": {
+      "command": "/Users/you/tools/intellij-dev-mcp/stdio-mcp-server/bin/stdio-mcp-server"
+    }
+  }
+}
+```
 
-[gh:intellij-platform-gradle-plugin-runIde]: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-tasks.html#runIde
+### Verifying the connection
 
-[gh:intellij-platform-gradle-plugin-verifyPlugin]: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-tasks.html#verifyPlugin
+Once IntelliJ is running with a project open and your MCP client is configured:
 
-[gradle:lifecycle-tasks]: https://docs.gradle.org/current/userguide/java_plugin.html#lifecycle_tasks
+1. The plugin starts automatically when IntelliJ opens a project
+2. Call `run_test` with a test class to run tests with coverage
 
-[jb:github]: https://github.com/JetBrains/.github/blob/main/profile/README.md
+### `run_test` parameters
 
-[jb:forum]: https://platform.jetbrains.com/
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `scope` | yes | One of: `package`, `class`, `method` |
+| `target` | yes | Package name, fully qualified class name, or `class#method` |
+| `moduleName` | no | IntelliJ module name. Auto-detected if omitted. |
 
-[jb:quality-guidelines]: https://plugins.jetbrains.com/docs/marketplace/quality-guidelines.html
+Examples:
 
-[jb:paid-plugins]: https://plugins.jetbrains.com/docs/marketplace/paid-plugins-marketplace.html
+```
+scope: "class",   target: "com.example.MyServiceTest"
+scope: "method",  target: "com.example.MyServiceTest#testCreate"
+scope: "package", target: "com.example.service"
+```
 
-[jb:quality-guidelines]: https://plugins.jetbrains.com/docs/marketplace/quality-guidelines.html
+## Building from source
 
-[jb:ipe]: https://jb.gg/ipe
+Requires Java 21+ and a working Gradle installation (or use the included wrapper).
 
-[jb:ui-guidelines]: https://jetbrains.github.io/ui
+```bash
+./gradlew buildPlugin :stdio-mcp-server:installDist
+```
+
+The plugin zip will be at `build/distributions/` and the bridge at `stdio-mcp-server/build/install/stdio-mcp-server/`.

@@ -22,7 +22,6 @@ class CommandProtocolService : Disposable {
 
         Files.createDirectories(PROTOCOL_DIR)
 
-        actionRegistry.register(HelloWorldTool().registration())
         actionRegistry.register(runTestRegistration(ProjectResolver()))
 
         Files.writeString(PROTOCOL_DIR.resolve("schema.json"), buildSchemaJson(actionRegistry))

@@ -72,7 +72,7 @@ class RunTestTool internal constructor(
         } catch (e: IllegalArgumentException) {
             errorResult(e.message ?: "Unknown error")
         } catch (e: Exception) {
-            errorResult("Failed to launch configuration: ${e.message}")
+            errorResult("Failed to launch configuration: ${e.exceptionSummary()}")
         }
     }
 
@@ -399,11 +399,6 @@ private fun createJUnitConfig(project: Project, params: RunTestTool.ConfigParams
     return configName
 }
 
-private fun errorResult(message: String): CallToolResult = CallToolResult.builder()
-    .addContent(TextContent(message))
-    .isError(true)
-    .build()
-
 private fun disposeSafely(disposable: com.intellij.openapi.Disposable) {
     try { Disposer.dispose(disposable) } catch (_: Exception) { }
 }
@@ -479,16 +474,18 @@ private val TEST_CLASS_SUFFIXES = listOf("Test", "Tests", "TestCase", "IT")
 private fun extractRelevantFrames(stacktrace: String): List<String> {
     val lines = stacktrace.lines()
     val exceptionLine = lines.firstOrNull { it.isNotBlank() }
-        ?.takeUnless { it.trimStart().startsWith("at ") }
-    val causeLine = lines.firstOrNull { it.trimStart().startsWith("Caused by:") }
-    val frames = lines.filter { line ->
+        ?.takeUnless { it.trimStart().startsWith("at ") || it.trimStart().startsWith("Caused by:") }
+    val causeIndex = lines.indexOfFirst { it.trimStart().startsWith("Caused by:") }
+    val causeLine = if (causeIndex >= 0) lines[causeIndex] else null
+    val primaryLines = if (causeIndex >= 0) lines.subList(0, causeIndex) else lines
+    val frames = primaryLines.filter { line ->
         val trimmed = line.trimStart()
         trimmed.startsWith("at ") && FRAMEWORK_PACKAGE_PREFIXES.none { prefix -> trimmed.startsWith("at $prefix") }
     }
     val result = mutableListOf<String>()
     if (exceptionLine != null) result.add(exceptionLine.trim())
-    if (causeLine != null) result.add(causeLine.trim())
     result.addAll(frames.take(MAX_STACKTRACE_FRAMES))
+    if (causeLine != null) result.add(causeLine.trim())
     return result
 }
 

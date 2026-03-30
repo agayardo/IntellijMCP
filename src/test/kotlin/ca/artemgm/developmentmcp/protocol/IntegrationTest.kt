@@ -3,6 +3,7 @@ package ca.artemgm.developmentmcp.protocol
 import ca.artemgm.protocol.FileProtocolClient
 import ca.artemgm.protocol.FileProtocolServer
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest
+import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import io.modelcontextprotocol.spec.McpSchema.TextContent
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
@@ -23,7 +24,8 @@ class IntegrationTest {
     fun setup() {
         Files.createDirectories(commandDir)
         sender = FileProtocolClient(commandDir)
-        val loop = RequestLoop(FileProtocolServer(commandDir), RequestProcessor(ActionRegistry().apply { register(HelloWorldTool {}.registration()) }))
+        val registry = ActionRegistry().apply { register(echoRegistration()) }
+        val loop = RequestLoop(FileProtocolServer(commandDir), RequestProcessor(registry))
         serverThread = Thread(loop).apply { isDaemon = true; name = "test-server"; start() }
     }
 
@@ -34,22 +36,22 @@ class IntegrationTest {
     }
 
     @Test
-    fun `hello_world with no name argument greets World`() {
-        val id = sender.sendRequest(CallToolRequest("hello_world", emptyMap()))
+    fun `echo tool returns provided message`() {
+        val id = sender.sendRequest(CallToolRequest("echo", mapOf("msg" to "ping")))
         val result = sender.receiveResponse(id, TIMEOUT)
-        assertThat((result.content().first() as TextContent).text()).isEqualTo("Hello, World!")
+        assertThat((result.content().first() as TextContent).text()).isEqualTo("ping")
     }
 
     @Test
-    fun `hello world invocation writes greeting response`() {
-        val id = sender.sendRequest(CallToolRequest("hello_world", mapOf("name" to "Alice")))
+    fun `echo tool with empty arguments returns fallback`() {
+        val id = sender.sendRequest(CallToolRequest("echo", emptyMap()))
         val result = sender.receiveResponse(id, TIMEOUT)
-        assertThat((result.content().first() as TextContent).text()).isEqualTo("Hello, Alice!")
+        assertThat((result.content().first() as TextContent).text()).isEqualTo("(empty)")
     }
 
     @Test
     fun `no tmp files remain after response write`() {
-        val id = sender.sendRequest(CallToolRequest("hello_world", emptyMap()))
+        val id = sender.sendRequest(CallToolRequest("echo", emptyMap()))
         sender.receiveResponse(id, TIMEOUT)
 
         val tmpFiles = Files.list(commandDir).use { stream ->
@@ -57,6 +59,15 @@ class IntegrationTest {
         }
         assertThat(tmpFiles).isEmpty()
     }
+}
+
+private fun echoRegistration() = ToolRegistration(
+    name = "echo",
+    description = "Echoes the msg argument",
+    inputSchema = ECHO_SCHEMA
+) { args ->
+    val msg = args["msg"] as? String ?: "(empty)"
+    CallToolResult.builder().addContent(TextContent(msg)).build()
 }
 
 private val TIMEOUT = Duration.ofSeconds(10)

@@ -11,10 +11,10 @@ class RequestProcessorTest {
     private val fixture = ProcessorFixture()
 
     @Test
-    fun `greeting response for name argument`() {
-        val result = process("hello_world", mapOf("name" to "Alice"))
+    fun `registered tool returns its response`() {
+        val result = process("echo", mapOf("msg" to "ping"))
 
-        assertThat(textOf(result)).isEqualTo("Hello, Alice!")
+        assertThat(textOf(result)).isEqualTo("irrelevant")
         assertThat(result.isError()).isFalse()
     }
 
@@ -33,7 +33,9 @@ class RequestProcessorTest {
         val result = process("failing_tool", emptyMap())
 
         assertThat(result.isError()).isTrue()
-        assertThat(textOf(result)).contains("Tool execution failed: something broke")
+        assertThat(textOf(result)).contains("Tool execution failed")
+        assertThat(textOf(result)).contains("RuntimeException")
+        assertThat(textOf(result)).contains("something broke")
     }
 
     @Test
