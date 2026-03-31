@@ -17,7 +17,7 @@ class RunTestHandler internal constructor(
         @Param(description = "Test scope: package, class, or method") scope: String,
         @Param(description = "Targets: list of package names, class FQNs, or class#method strings") targets: List<String>,
         @Param(description = "IntelliJ module name (optional)") moduleName: String?,
-        @Param(description = "Regex patterns for class FQNs to report uncovered line numbers for (optional)") coverageFor: List<String>? = null
+        @Param(description = "Glob patterns for source file paths (relative to project root, e.g. **/MyFile.kt) to report uncovered line numbers for (optional)") coverageFor: List<String>? = null
     ): CallToolResult {
         if (targets.isEmpty()) return errorResult("Targets list must not be empty")
 

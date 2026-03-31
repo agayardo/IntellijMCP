@@ -46,6 +46,8 @@ import java.util.concurrent.TimeUnit
 class RunTestTool internal constructor(
     private val configCreator: (ConfigParams) -> String,
     private val executionLauncher: (String, Set<String>) -> ExecutionResult,
+    private val filePathResolver: (String) -> String?,
+    private val classesInFile: (String) -> Set<String>,
     private val sourceReader: (String) -> List<String>?,
     private val module: Module
 ) {
@@ -59,7 +61,9 @@ class RunTestTool internal constructor(
         executionLauncher = { configName, packageNames ->
             launchWithCoverage(project, configName, packageNames)
         },
-        sourceReader = { className -> readSourceLines(project, className) },
+        filePathResolver = { className -> resolveFilePath(project, className) },
+        classesInFile = { filePath -> resolveClassesInFile(project, filePath) },
+        sourceReader = { filePath -> readSourceLines(project, filePath) },
         module = module
     )
 
@@ -75,14 +79,22 @@ class RunTestTool internal constructor(
             val response = buildString {
                 append(result.testOutput)
                 if (result.coverage != null) {
-                    append("\n\n")
-                    append(formatCoverage(result.coverage))
-                }
-                if (coverageFor != null && result.coverage != null) {
-                    val uncovered = formatUncoveredLines(result.coverage, coverageFor, sourceReader)
-                    if (uncovered.isNotEmpty()) {
+                    val fileCoverages = groupByFile(result.coverage.classCoverages, filePathResolver)
+                    if (coverageFor != null) {
+                        val loadedClassNames = result.coverage.classCoverages.map { it.className }.toSet()
+                        val corrected = correctForUnloadedClasses(
+                            fileCoverages, coverageFor, loadedClassNames, classesInFile, sourceReader
+                        )
                         append("\n\n")
-                        append(uncovered)
+                        append(formatCoverage(result.coverage, corrected))
+                        val uncovered = formatUncoveredLines(corrected, coverageFor, sourceReader)
+                        if (uncovered.isNotEmpty()) {
+                            append("\n\n")
+                            append(uncovered)
+                        }
+                    } else {
+                        append("\n\n")
+                        append(formatCoverage(result.coverage, fileCoverages))
                     }
                 }
             }
@@ -129,7 +141,18 @@ data class ClassCoverage(
     val coveredLines: Int,
     val totalBranches: Int,
     val coveredBranches: Int,
+    val coveredLineNumbers: List<Int> = emptyList(),
     val uncoveredLineNumbers: List<Int> = emptyList()
+)
+
+data class FileCoverage(
+    val filePath: String,
+    val totalLines: Int,
+    val coveredLines: Int,
+    val totalBranches: Int,
+    val coveredBranches: Int,
+    val coveredLineNumbers: List<Int>,
+    val uncoveredLineNumbers: List<Int>
 )
 
 internal data class TestRunSummary(val output: String, val failed: Boolean)
@@ -147,7 +170,7 @@ private fun resolvePackageName(scope: RunTestTool.TestScope, target: String): St
     RunTestTool.TestScope.METHOD -> target.substringBefore('#').substringBeforeLast('.')
 }
 
-private fun formatCoverage(coverage: PackageCoverage): String {
+private fun formatCoverage(coverage: PackageCoverage, fileCoverages: List<FileCoverage>): String {
     val lineRate = if (coverage.totalLines > 0) coverage.coveredLines.toDouble() / coverage.totalLines else 0.0
     val branchRate = if (coverage.totalBranches > 0) coverage.coveredBranches.toDouble() / coverage.totalBranches else 0.0
 
@@ -156,11 +179,11 @@ private fun formatCoverage(coverage: PackageCoverage): String {
     sb.appendLine("  Lines:    ${coverage.coveredLines}/${coverage.totalLines} (${"%.1f".format(lineRate * 100)}%)")
     sb.appendLine("  Branches: ${coverage.coveredBranches}/${coverage.totalBranches} (${"%.1f".format(branchRate * 100)}%)")
 
-    if (coverage.classCoverages.isNotEmpty()) {
-        sb.appendLine("  Per class:")
-        for (cls in coverage.classCoverages) {
-            val clsLineRate = if (cls.totalLines > 0) cls.coveredLines.toDouble() / cls.totalLines else 0.0
-            sb.appendLine("    ${cls.className}: ${cls.coveredLines}/${cls.totalLines} lines (${"%.1f".format(clsLineRate * 100)}%)")
+    if (fileCoverages.isNotEmpty()) {
+        sb.appendLine("  Per file:")
+        for (file in fileCoverages) {
+            val fileLineRate = if (file.totalLines > 0) file.coveredLines.toDouble() / file.totalLines else 0.0
+            sb.appendLine("    ${file.filePath}: ${file.coveredLines}/${file.totalLines} lines (${"%.1f".format(fileLineRate * 100)}%)")
         }
     }
 
@@ -301,11 +324,12 @@ internal fun extractPackageCoverage(projectData: ProjectData, packageNames: Set<
 }
 
 private fun extractClassCoverage(className: String, classData: ClassData): ClassCoverage {
-    val lines = classData.lines ?: return ClassCoverage(className, 0, 0, 0, 0)
+    val lines = classData.lines ?: return ClassCoverage(className, 0, 0, 0, 0, emptyList(), emptyList())
     var totalLines = 0
     var coveredLines = 0
     var totalBranches = 0
     var coveredBranches = 0
+    val coveredLineNumbers = mutableListOf<Int>()
     val uncoveredLineNumbers = mutableListOf<Int>()
 
     for (line in lines) {
@@ -313,6 +337,7 @@ private fun extractClassCoverage(className: String, classData: ClassData): Class
         totalLines++
         if (ld.status.toInt() != LineCoverage.NONE.toInt()) {
             coveredLines++
+            coveredLineNumbers.add(ld.lineNumber)
         } else {
             uncoveredLineNumbers.add(ld.lineNumber)
         }
@@ -331,7 +356,7 @@ private fun extractClassCoverage(className: String, classData: ClassData): Class
         }
     }
 
-    return ClassCoverage(className, totalLines, coveredLines, totalBranches, coveredBranches, uncoveredLineNumbers)
+    return ClassCoverage(className, totalLines, coveredLines, totalBranches, coveredBranches, coveredLineNumbers, uncoveredLineNumbers)
 }
 
 // RunContentManager is the only reliable way to get the execution console for Gradle runs.
@@ -406,21 +431,20 @@ private fun formatTestResults(configName: String, root: AbstractTestProxy, exitC
 }
 
 internal fun formatUncoveredLines(
-    coverage: PackageCoverage,
+    fileCoverages: List<FileCoverage>,
     patterns: List<String>,
     sourceReader: (String) -> List<String>?
 ): String {
-    val regexes = patterns.map { Regex(it) }
-    val matching = coverage.classCoverages.filter { cls ->
-        cls.uncoveredLineNumbers.isNotEmpty() && regexes.any { it.matches(cls.className) }
+    val matching = fileCoverages.filter { file ->
+        file.uncoveredLineNumbers.isNotEmpty() && patterns.any { matchesGlob(it, file.filePath) }
     }
     if (matching.isEmpty()) return ""
 
     return buildString {
-        for (cls in matching) {
-            appendLine("Uncovered lines in ${cls.className}:")
-            val sourceLines = sourceReader(cls.className)
-            for (lineNum in cls.uncoveredLineNumbers) {
+        for (file in matching) {
+            appendLine("Uncovered lines in ${file.filePath}:")
+            val sourceLines = sourceReader(file.filePath)
+            for (lineNum in file.uncoveredLineNumbers) {
                 val content = sourceLines?.getOrNull(lineNum - 1)?.trimEnd()
                 if (content != null) appendLine("  $lineNum: $content")
                 else appendLine("  $lineNum")
@@ -628,17 +652,149 @@ private fun formatFilePosition(pos: com.intellij.build.FilePosition): String? {
     return "${file.name}:$line"
 }
 
-private fun readSourceLines(project: Project, className: String): List<String>? =
+private fun readSourceLines(project: Project, filePath: String): List<String>? =
     ReadAction.compute<List<String>?, Exception> {
-        val psiClass = JavaPsiFacade.getInstance(project)
-            .findClass(className, GlobalSearchScope.projectScope(project))
-            ?: return@compute null
-        val virtualFile = psiClass.containingFile?.virtualFile ?: return@compute null
+        val baseDir = project.basePath ?: return@compute null
+        val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+            .findFileByPath("$baseDir/$filePath") ?: return@compute null
         try {
             String(virtualFile.contentsToByteArray(), virtualFile.charset).lines()
         } catch (_: Exception) {
             null
         }
+    }
+
+private fun resolveFilePath(project: Project, className: String): String? =
+    ReadAction.compute<String?, Exception> {
+        val outerClassName = className.substringBefore('$')
+        resolveClassFile(project, outerClassName)
+            ?: outerClassName.removeSuffix("Kt").takeIf { it != outerClassName }
+                ?.let { resolveClassFile(project, it) }
+    }
+
+private fun resolveClassFile(project: Project, className: String): String? {
+    val psiClass = JavaPsiFacade.getInstance(project)
+        .findClass(className, GlobalSearchScope.projectScope(project))
+        ?: return null
+    val virtualFile = psiClass.containingFile?.virtualFile ?: return null
+    val basePath = project.basePath ?: return virtualFile.path
+    return virtualFile.path.removePrefix("$basePath/")
+}
+
+internal fun groupByFile(
+    classCoverages: List<ClassCoverage>,
+    filePathResolver: (String) -> String?
+): List<FileCoverage> {
+    val coveragesByFile = linkedMapOf<String, MutableList<ClassCoverage>>()
+    for (cls in classCoverages) {
+        val filePath = filePathResolver(cls.className) ?: cls.className
+        coveragesByFile.getOrPut(filePath) { mutableListOf() }.add(cls)
+    }
+    return coveragesByFile.map { (filePath, classes) ->
+        val covered = classes.flatMap { it.coveredLineNumbers }.toSortedSet()
+        val uncovered = classes.flatMap { it.uncoveredLineNumbers }.toSortedSet() - covered
+        FileCoverage(
+            filePath = filePath,
+            totalLines = covered.size + uncovered.size,
+            coveredLines = covered.size,
+            totalBranches = classes.sumOf { it.totalBranches },
+            coveredBranches = classes.sumOf { it.coveredBranches },
+            coveredLineNumbers = covered.toList(),
+            uncoveredLineNumbers = uncovered.toList()
+        )
+    }
+}
+
+internal fun matchesGlob(glob: String, path: String): Boolean {
+    val regex = buildString {
+        append("^")
+        var i = 0
+        while (i < glob.length) {
+            when {
+                glob[i] == '*' && i + 1 < glob.length && glob[i + 1] == '*' -> {
+                    if (i + 2 < glob.length && glob[i + 2] == '/') {
+                        append("(.*/)?")
+                        i += 3
+                    } else {
+                        append(".*")
+                        i += 2
+                    }
+                }
+                glob[i] == '*' -> { append("[^/]*"); i++ }
+                glob[i] == '?' -> { append("[^/]"); i++ }
+                glob[i] == '.' -> { append("\\."); i++ }
+                else -> { append(glob[i]); i++ }
+            }
+        }
+        append("$")
+    }
+    return Regex(regex).matches(path)
+}
+
+internal fun correctForUnloadedClasses(
+    fileCoverages: List<FileCoverage>,
+    patterns: List<String>,
+    loadedClassNames: Set<String>,
+    classesInFile: (String) -> Set<String>,
+    sourceReader: (String) -> List<String>?
+): List<FileCoverage> = fileCoverages.map { file ->
+    if (!patterns.any { matchesGlob(it, file.filePath) }) return@map file
+    val expectedClasses = classesInFile(file.filePath)
+    // Only apply heuristic when all classes are unloaded; mixed loaded/unloaded is ambiguous
+    if (expectedClasses.isEmpty() || expectedClasses.any { it in loadedClassNames }) return@map file
+
+    val sourceLines = sourceReader(file.filePath) ?: return@map file
+    val heuristicUncovered = sourceLines.indices
+        .map { it + 1 }
+        .filter { isCodeLine(sourceLines[it - 1]) }
+
+    FileCoverage(
+        filePath = file.filePath,
+        totalLines = heuristicUncovered.size,
+        coveredLines = 0,
+        totalBranches = 0,
+        coveredBranches = 0,
+        coveredLineNumbers = emptyList(),
+        uncoveredLineNumbers = heuristicUncovered
+    )
+}
+
+internal fun isCodeLine(line: String): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.isEmpty()) return false
+    if (trimmed.startsWith("//")) return false
+    if (trimmed.startsWith("/*") || trimmed.startsWith("*") || trimmed.startsWith("*/")) return false
+    if (trimmed.startsWith("package ")) return false
+    if (trimmed.startsWith("import ")) return false
+    if (trimmed == "{" || trimmed == "}" || trimmed == ")") return false
+    if (trimmed.startsWith("@")) return false
+    return true
+}
+
+private fun resolveClassesInFile(project: Project, filePath: String): Set<String> =
+    ReadAction.compute<Set<String>, Exception> {
+        val baseDir = project.basePath ?: return@compute emptySet()
+        val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+            .findFileByPath("$baseDir/$filePath") ?: return@compute emptySet()
+        val psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile)
+            ?: return@compute emptySet()
+        val classes = mutableSetOf<String>()
+        psiFile.accept(object : com.intellij.psi.PsiRecursiveElementVisitor() {
+            override fun visitElement(element: com.intellij.psi.PsiElement) {
+                if (element is com.intellij.psi.PsiClass && element.qualifiedName != null) {
+                    classes.add(element.qualifiedName!!)
+                }
+                super.visitElement(element)
+            }
+        })
+        // Kotlin file facade class for top-level functions/properties
+        if (filePath.endsWith(".kt")) {
+            val packageName = (psiFile as? com.intellij.psi.PsiClassOwner)?.packageName ?: ""
+            val fileName = virtualFile.nameWithoutExtension
+            val facadeClass = if (packageName.isEmpty()) "${fileName}Kt" else "$packageName.${fileName}Kt"
+            classes.add(facadeClass)
+        }
+        classes
     }
 
 private val FRAMEWORK_PACKAGE_PREFIXES = listOf(

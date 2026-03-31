@@ -1,13 +1,10 @@
 package ca.artemgm.developmentmcp.protocol
 
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
-import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.psi.JavaPsiFacade
-import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.openapi.roots.ModuleRootManager
 
 class ProjectResolver internal constructor(
     private val openProjects: () -> Array<Project>,
@@ -19,7 +16,7 @@ class ProjectResolver internal constructor(
     constructor() : this(
         openProjects = { ProjectManager.getInstance().openProjects },
         findModuleByName = { project, name -> ModuleManager.getInstance(project).findModuleByName(name) },
-        resolveTargetInProject = ::resolveViaPsi,
+        resolveTargetInProject = ::resolveViaSourceRoots,
         listModuleNames = { project -> ModuleManager.getInstance(project).modules.map { it.name } }
     )
 
@@ -81,17 +78,54 @@ sealed interface TargetMatch {
     data object NotFound : TargetMatch
 }
 
-private fun resolveViaPsi(project: Project, target: String): TargetMatch =
-    ReadAction.compute<TargetMatch, Exception> {
-        val facade = JavaPsiFacade.getInstance(project)
-        val scope = GlobalSearchScope.projectScope(project)
+private fun resolveViaSourceRoots(project: Project, target: String): TargetMatch {
+    val asClass = resolveClass(project, target)
+    if (asClass != null) return TargetMatch.Resolved(asClass)
 
-        val psiElement = facade.findClass(target, scope)
-            ?: facade.findPackage(target)
-            ?: return@compute TargetMatch.NotFound
+    val asPackage = resolvePackage(project, target)
+    if (asPackage != null) return TargetMatch.Resolved(asPackage)
 
-        val module = ModuleUtilCore.findModuleForPsiElement(psiElement)
-            ?: return@compute TargetMatch.FoundButModuleUnknown
+    return TargetMatch.NotFound
+}
 
-        TargetMatch.Resolved(ResolvedContext(project, module))
+private fun resolveClass(project: Project, classFqn: String): ResolvedContext? {
+    val packagePath = classFqn.substringBeforeLast('.').replace('.', '/')
+    val simpleName = classFqn.substringAfterLast('.')
+
+    return findInSourceRoots(project, packagePath) { packageDir ->
+        packageDir.children.any { child ->
+            !child.isDirectory
+                && SOURCE_EXTENSIONS.any { child.name.endsWith(it) }
+                && try { containsClassOrObject(String(child.contentsToByteArray(), child.charset), simpleName) }
+                  catch (_: Exception) { false }
+        }
     }
+}
+
+private fun resolvePackage(project: Project, packageFqn: String): ResolvedContext? {
+    val packagePath = packageFqn.replace('.', '/')
+    return findInSourceRoots(project, packagePath) { dir ->
+        dir.children.any { SOURCE_EXTENSIONS.any { ext -> it.name.endsWith(ext) } }
+    }
+}
+
+private fun findInSourceRoots(
+    project: Project,
+    relativePath: String,
+    predicate: (com.intellij.openapi.vfs.VirtualFile) -> Boolean
+): ResolvedContext? {
+    for (module in ModuleManager.getInstance(project).modules) {
+        for (sourceRoot in ModuleRootManager.getInstance(module).sourceRoots) {
+            val dir = sourceRoot.findFileByRelativePath(relativePath) ?: continue
+            if (dir.isDirectory && predicate(dir)) return ResolvedContext(project, module)
+        }
+    }
+    return null
+}
+
+private fun containsClassOrObject(content: String, name: String): Boolean {
+    val pattern = "(?:class|object|interface|enum)\\s+$name\\b"
+    return Regex(pattern).containsMatchIn(content)
+}
+
+private val SOURCE_EXTENSIONS = listOf(".kt", ".java")

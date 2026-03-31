@@ -17,6 +17,8 @@ class RunTestHandlerTest {
             RunTestTool(
                 configCreator = { params -> capturedTargets = params.targets; "RunTest-stub" },
                 executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null) },
+                filePathResolver = { null },
+                classesInFile = { emptySet() },
                 sourceReader = { null },
                 module = ctx.module
             )

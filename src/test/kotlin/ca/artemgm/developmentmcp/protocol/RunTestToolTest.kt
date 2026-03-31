@@ -19,7 +19,25 @@ class RunTestToolTest {
             launcherPackageNames = pkgs
             ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null)
         },
+        filePathResolver = { null },
+        classesInFile = { emptySet() },
         sourceReader = { null },
+        module = stubModule
+    )
+
+    private fun stubTool(
+        executionLauncher: (String, Set<String>) -> ExecutionResult = { _, _ ->
+            ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null)
+        },
+        filePathResolver: (String) -> String? = { null },
+        classesInFile: (String) -> Set<String> = { emptySet() },
+        sourceReader: (String) -> List<String>? = { null }
+    ) = RunTestTool(
+        configCreator = { "stub" },
+        executionLauncher = executionLauncher,
+        filePathResolver = filePathResolver,
+        classesInFile = classesInFile,
+        sourceReader = sourceReader,
         module = stubModule
     )
 
@@ -67,11 +85,8 @@ class RunTestToolTest {
 
         @Test
         fun `execution launcher failure produces error with reason`() {
-            val tool = RunTestTool(
-                configCreator = { "stub" },
-                executionLauncher = { _, _ -> throw RuntimeException("connection refused") },
-                sourceReader = { null },
-                module = stubModule
+            val tool = stubTool(
+                executionLauncher = { _, _ -> throw RuntimeException("connection refused") }
             )
 
             val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
@@ -94,11 +109,8 @@ class RunTestToolTest {
 
         @Test
         fun `failed execution result sets isError on tool response`() {
-            val tool = RunTestTool(
-                configCreator = { "stub" },
-                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 0, Failed: 1", true, null) },
-                sourceReader = { null },
-                module = stubModule
+            val tool = stubTool(
+                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 0, Failed: 1", true, null) }
             )
 
             val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
@@ -126,15 +138,23 @@ class RunTestToolTest {
                 totalBranches = 20,
                 coveredBranches = 15,
                 classCoverages = listOf(
-                    ClassCoverage("com.example.Foo", 60, 50, 10, 8),
-                    ClassCoverage("com.example.Bar", 40, 25, 10, 7)
+                    ClassCoverage("com.example.Foo", 60, 50, 10, 8,
+                        coveredLineNumbers = (1..50).toList(),
+                        uncoveredLineNumbers = (51..60).toList()),
+                    ClassCoverage("com.example.Bar", 40, 25, 10, 7,
+                        coveredLineNumbers = (1..25).toList(),
+                        uncoveredLineNumbers = (26..40).toList())
                 )
             )
-            val tool = RunTestTool(
-                configCreator = { "stub" },
+            val tool = stubTool(
                 executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, coverage) },
-                sourceReader = { null },
-                module = stubModule
+                filePathResolver = { className ->
+                    when (className) {
+                        "com.example.Foo" -> "src/main/kotlin/com/example/Foo.kt"
+                        "com.example.Bar" -> "src/main/kotlin/com/example/Bar.kt"
+                        else -> null
+                    }
+                }
             )
 
             val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
@@ -143,8 +163,9 @@ class RunTestToolTest {
             assertThat(text).contains("Coverage for package 'com.example':")
             assertThat(text).contains("Lines:    75/100 (75.0%)")
             assertThat(text).contains("Branches: 15/20 (75.0%)")
-            assertThat(text).contains("com.example.Foo: 50/60 lines (83.3%)")
-            assertThat(text).contains("com.example.Bar: 25/40 lines (62.5%)")
+            assertThat(text).contains("Per file:")
+            assertThat(text).contains("src/main/kotlin/com/example/Foo.kt: 50/60 lines (83.3%)")
+            assertThat(text).contains("src/main/kotlin/com/example/Bar.kt: 25/40 lines (62.5%)")
         }
 
         @Test
@@ -201,19 +222,16 @@ class RunTestToolTest {
         }
 
         @Test
-        fun `empty class list omits per-class section`() {
+        fun `empty class list omits per-file section`() {
             val coverage = PackageCoverage("com.example", 10, 5, 4, 2, emptyList())
             val text = runWithCoverage(coverage)
 
-            assertThat(text).doesNotContain("Per class:")
+            assertThat(text).doesNotContain("Per file:")
         }
 
         private fun runWithCoverage(coverage: PackageCoverage): String {
-            val tool = RunTestTool(
-                configCreator = { "stub" },
-                executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) },
-                sourceReader = { null },
-                module = stubModule
+            val tool = stubTool(
+                executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) }
             )
             return textOf(tool.handle(TestScope.CLASS, listOf("com.example.MyTest")))
         }
@@ -222,29 +240,24 @@ class RunTestToolTest {
     @Nested
     inner class UncoveredLines {
 
-        private fun toolWithCoverage(
-            coverage: PackageCoverage,
-            sourceReader: (String) -> List<String>? = { null }
-        ) = RunTestTool(
-            configCreator = { "stub" },
+        private fun toolReturning(coverage: PackageCoverage, source: List<String>?) = stubTool(
             executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) },
-            sourceReader = sourceReader,
-            module = stubModule
+            filePathResolver = { "src/main/kotlin/com/example/Foo.kt" },
+            sourceReader = { source }
         )
 
         @Test
         fun `coverageFor includes uncovered lines section in response`() {
             val coverage = PackageCoverage(
                 "com.example", 5, 3, 0, 0,
-                listOf(ClassCoverage("com.example.Foo", 5, 3, 0, 0, listOf(4, 5)))
+                listOf(ClassCoverage("com.example.Foo", 5, 3, 0, 0, uncoveredLineNumbers = listOf(4, 5)))
             )
-            val tool = toolWithCoverage(coverage) {
-                listOf("package com.example", "", "class Foo {", "    fun a() {}", "    fun b() {}", "}")
-            }
+            val source = listOf("package com.example", "", "class Foo {", "    fun a() {}", "    fun b() {}", "}")
+            val tool = toolReturning(coverage, source)
 
-            val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest"), listOf("com\\.example\\.Foo")))
+            val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest"), listOf("**/Foo.kt")))
 
-            assertThat(text).contains("Uncovered lines in com.example.Foo:")
+            assertThat(text).contains("Uncovered lines in src/main/kotlin/com/example/Foo.kt:")
             assertThat(text).contains("4:     fun a() {}")
             assertThat(text).contains("5:     fun b() {}")
         }
@@ -253,9 +266,10 @@ class RunTestToolTest {
         fun `null coverageFor omits uncovered lines section`() {
             val coverage = PackageCoverage(
                 "com.example", 5, 3, 0, 0,
-                listOf(ClassCoverage("com.example.Foo", 5, 3, 0, 0, listOf(4)))
+                listOf(ClassCoverage("com.example.Foo", 5, 3, 0, 0,
+                    coveredLineNumbers = listOf(1, 2, 3), uncoveredLineNumbers = listOf(4)))
             )
-            val tool = toolWithCoverage(coverage) { listOf("a", "b", "c", "d") }
+            val tool = toolReturning(coverage, listOf("a", "b", "c", "d"))
 
             val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest")))
 
