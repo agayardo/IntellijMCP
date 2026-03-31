@@ -16,7 +16,8 @@ class RunTestHandler internal constructor(
     fun handle(
         @Param(description = "Test scope: package, class, or method") scope: String,
         @Param(description = "Targets: list of package names, class FQNs, or class#method strings") targets: List<String>,
-        @Param(description = "IntelliJ module name (optional)") moduleName: String?
+        @Param(description = "IntelliJ module name (optional)") moduleName: String?,
+        @Param(description = "Regex patterns for class FQNs to report uncovered line numbers for (optional)") coverageFor: List<String>? = null
     ): CallToolResult {
         if (targets.isEmpty()) return errorResult("Targets list must not be empty")
 
@@ -41,7 +42,7 @@ class RunTestHandler internal constructor(
         }
 
         return try {
-            toolFactory(ctx).handle(testScope, targets)
+            toolFactory(ctx).handle(testScope, targets, coverageFor)
         } catch (e: Exception) {
             errorResult("Tool execution failed: ${e.exceptionSummary()}")
         }

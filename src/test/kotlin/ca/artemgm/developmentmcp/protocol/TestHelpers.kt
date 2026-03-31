@@ -58,5 +58,6 @@ internal fun stubProject(name: String = "StubProject"): Project = Proxy.newProxy
 internal fun stubTool(module: Module) = RunTestTool(
     configCreator = { "stub" },
     executionLauncher = { _, _ -> ExecutionResult("ok", false, null) },
+    sourceReader = { null },
     module = module,
 )

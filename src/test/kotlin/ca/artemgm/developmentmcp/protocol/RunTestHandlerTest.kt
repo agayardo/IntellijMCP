@@ -17,6 +17,7 @@ class RunTestHandlerTest {
             RunTestTool(
                 configCreator = { params -> capturedTargets = params.targets; "RunTest-stub" },
                 executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null) },
+                sourceReader = { null },
                 module = ctx.module
             )
         }
@@ -51,6 +52,12 @@ class RunTestHandlerTest {
         fun `moduleName is optional in schema`() {
             assertThat(schemaProperty(schema, "moduleName")["type"]).isEqualTo("string")
             assertThat(requiredParams()).doesNotContain("moduleName")
+        }
+
+        @Test
+        fun `coverageFor is optional`() {
+            assertThat(schemaProperty(schema, "coverageFor")["type"]).isEqualTo("array")
+            assertThat(requiredParams()).doesNotContain("coverageFor")
         }
 
         @Suppress("UNCHECKED_CAST")

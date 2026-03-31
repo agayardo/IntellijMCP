@@ -20,12 +20,15 @@ import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.process.ProcessListener
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.execution.testframework.AbstractTestProxy
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.externalSystem.model.DataNode
 import com.intellij.openapi.externalSystem.model.project.ModuleData
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.rt.coverage.data.ClassData
 import com.intellij.rt.coverage.data.LineData
 import com.intellij.rt.coverage.data.LineCoverage
@@ -43,6 +46,7 @@ import java.util.concurrent.TimeUnit
 class RunTestTool internal constructor(
     private val configCreator: (ConfigParams) -> String,
     private val executionLauncher: (String, Set<String>) -> ExecutionResult,
+    private val sourceReader: (String) -> List<String>?,
     private val module: Module
 ) {
 
@@ -55,21 +59,33 @@ class RunTestTool internal constructor(
         executionLauncher = { configName, packageNames ->
             launchWithCoverage(project, configName, packageNames)
         },
+        sourceReader = { className -> readSourceLines(project, className) },
         module = module
     )
 
     fun handle(
         scope: TestScope,
-        targets: List<String>
+        targets: List<String>,
+        coverageFor: List<String>? = null
     ): CallToolResult {
         return try {
             val configName = configCreator(ConfigParams(scope, targets, module))
             val packageNames = targets.map { resolvePackageName(scope, it) }.toSet()
             val result = executionLauncher(configName, packageNames)
-            val response = if (result.coverage != null)
-                "${result.testOutput}\n\n${formatCoverage(result.coverage)}"
-            else
-                result.testOutput
+            val response = buildString {
+                append(result.testOutput)
+                if (result.coverage != null) {
+                    append("\n\n")
+                    append(formatCoverage(result.coverage))
+                }
+                if (coverageFor != null && result.coverage != null) {
+                    val uncovered = formatUncoveredLines(result.coverage, coverageFor, sourceReader)
+                    if (uncovered.isNotEmpty()) {
+                        append("\n\n")
+                        append(uncovered)
+                    }
+                }
+            }
             CallToolResult.builder()
                 .addContent(TextContent(response))
                 .isError(result.failed)
@@ -112,7 +128,8 @@ data class ClassCoverage(
     val totalLines: Int,
     val coveredLines: Int,
     val totalBranches: Int,
-    val coveredBranches: Int
+    val coveredBranches: Int,
+    val uncoveredLineNumbers: List<Int> = emptyList()
 )
 
 internal data class TestRunSummary(val output: String, val failed: Boolean)
@@ -289,11 +306,16 @@ private fun extractClassCoverage(className: String, classData: ClassData): Class
     var coveredLines = 0
     var totalBranches = 0
     var coveredBranches = 0
+    val uncoveredLineNumbers = mutableListOf<Int>()
 
     for (line in lines) {
         val ld = line as? LineData ?: continue
         totalLines++
-        if (ld.status.toInt() != LineCoverage.NONE.toInt()) coveredLines++
+        if (ld.status.toInt() != LineCoverage.NONE.toInt()) {
+            coveredLines++
+        } else {
+            uncoveredLineNumbers.add(ld.lineNumber)
+        }
 
         for (j in 0 until ld.jumpsCount()) {
             val jump = ld.getJumpData(j) ?: continue
@@ -309,7 +331,7 @@ private fun extractClassCoverage(className: String, classData: ClassData): Class
         }
     }
 
-    return ClassCoverage(className, totalLines, coveredLines, totalBranches, coveredBranches)
+    return ClassCoverage(className, totalLines, coveredLines, totalBranches, coveredBranches, uncoveredLineNumbers)
 }
 
 // RunContentManager is the only reliable way to get the execution console for Gradle runs.
@@ -381,6 +403,30 @@ private fun formatTestResults(configName: String, root: AbstractTestProxy, exitC
     }
 
     return TestRunSummary(sb.toString().trimEnd(), runFailed)
+}
+
+internal fun formatUncoveredLines(
+    coverage: PackageCoverage,
+    patterns: List<String>,
+    sourceReader: (String) -> List<String>?
+): String {
+    val regexes = patterns.map { Regex(it) }
+    val matching = coverage.classCoverages.filter { cls ->
+        cls.uncoveredLineNumbers.isNotEmpty() && regexes.any { it.matches(cls.className) }
+    }
+    if (matching.isEmpty()) return ""
+
+    return buildString {
+        for (cls in matching) {
+            appendLine("Uncovered lines in ${cls.className}:")
+            val sourceLines = sourceReader(cls.className)
+            for (lineNum in cls.uncoveredLineNumbers) {
+                val content = sourceLines?.getOrNull(lineNum - 1)?.trimEnd()
+                if (content != null) appendLine("  $lineNum: $content")
+                else appendLine("  $lineNum")
+            }
+        }
+    }.trimEnd()
 }
 
 internal fun buildNotStartedMessage(configName: String, cause: Throwable?, buildErrors: List<String>): String {
@@ -581,6 +627,19 @@ private fun formatFilePosition(pos: com.intellij.build.FilePosition): String? {
     val line = pos.startLine + 1
     return "${file.name}:$line"
 }
+
+private fun readSourceLines(project: Project, className: String): List<String>? =
+    ReadAction.compute<List<String>?, Exception> {
+        val psiClass = JavaPsiFacade.getInstance(project)
+            .findClass(className, GlobalSearchScope.projectScope(project))
+            ?: return@compute null
+        val virtualFile = psiClass.containingFile?.virtualFile ?: return@compute null
+        try {
+            String(virtualFile.contentsToByteArray(), virtualFile.charset).lines()
+        } catch (_: Exception) {
+            null
+        }
+    }
 
 private val FRAMEWORK_PACKAGE_PREFIXES = listOf(
     "org.junit.",

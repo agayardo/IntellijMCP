@@ -19,6 +19,7 @@ class RunTestToolTest {
             launcherPackageNames = pkgs
             ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null)
         },
+        sourceReader = { null },
         module = stubModule
     )
 
@@ -69,6 +70,7 @@ class RunTestToolTest {
             val tool = RunTestTool(
                 configCreator = { "stub" },
                 executionLauncher = { _, _ -> throw RuntimeException("connection refused") },
+                sourceReader = { null },
                 module = stubModule
             )
 
@@ -95,6 +97,7 @@ class RunTestToolTest {
             val tool = RunTestTool(
                 configCreator = { "stub" },
                 executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 0, Failed: 1", true, null) },
+                sourceReader = { null },
                 module = stubModule
             )
 
@@ -130,6 +133,7 @@ class RunTestToolTest {
             val tool = RunTestTool(
                 configCreator = { "stub" },
                 executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, coverage) },
+                sourceReader = { null },
                 module = stubModule
             )
 
@@ -208,9 +212,54 @@ class RunTestToolTest {
             val tool = RunTestTool(
                 configCreator = { "stub" },
                 executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) },
+                sourceReader = { null },
                 module = stubModule
             )
             return textOf(tool.handle(TestScope.CLASS, listOf("com.example.MyTest")))
+        }
+    }
+
+    @Nested
+    inner class UncoveredLines {
+
+        private fun toolWithCoverage(
+            coverage: PackageCoverage,
+            sourceReader: (String) -> List<String>? = { null }
+        ) = RunTestTool(
+            configCreator = { "stub" },
+            executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) },
+            sourceReader = sourceReader,
+            module = stubModule
+        )
+
+        @Test
+        fun `coverageFor includes uncovered lines section in response`() {
+            val coverage = PackageCoverage(
+                "com.example", 5, 3, 0, 0,
+                listOf(ClassCoverage("com.example.Foo", 5, 3, 0, 0, listOf(4, 5)))
+            )
+            val tool = toolWithCoverage(coverage) {
+                listOf("package com.example", "", "class Foo {", "    fun a() {}", "    fun b() {}", "}")
+            }
+
+            val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest"), listOf("com\\.example\\.Foo")))
+
+            assertThat(text).contains("Uncovered lines in com.example.Foo:")
+            assertThat(text).contains("4:     fun a() {}")
+            assertThat(text).contains("5:     fun b() {}")
+        }
+
+        @Test
+        fun `null coverageFor omits uncovered lines section`() {
+            val coverage = PackageCoverage(
+                "com.example", 5, 3, 0, 0,
+                listOf(ClassCoverage("com.example.Foo", 5, 3, 0, 0, listOf(4)))
+            )
+            val tool = toolWithCoverage(coverage) { listOf("a", "b", "c", "d") }
+
+            val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest")))
+
+            assertThat(text).doesNotContain("Uncovered lines")
         }
     }
 }
