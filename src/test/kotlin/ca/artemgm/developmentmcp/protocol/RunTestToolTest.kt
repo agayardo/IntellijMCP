@@ -240,11 +240,27 @@ class RunTestToolTest {
     @Nested
     inner class UncoveredLines {
 
-        private fun toolReturning(coverage: PackageCoverage, source: List<String>?) = stubTool(
+        private val fooAndFooKt: (String) -> Set<String> = { setOf("com.example.Foo", "com.example.FooKt") }
+
+        private fun toolReturning(
+            coverage: PackageCoverage,
+            source: List<String>?,
+            classesInFile: (String) -> Set<String>
+        ) = stubTool(
             executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) },
             filePathResolver = { "src/main/kotlin/com/example/Foo.kt" },
+            classesInFile = classesInFile,
             sourceReader = { source }
         )
+
+        private fun runWithCoverageFor(
+            coverage: PackageCoverage,
+            source: List<String>?,
+            classesInFile: (String) -> Set<String>
+        ): String {
+            val tool = toolReturning(coverage, source, classesInFile)
+            return textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest"), listOf("**/Foo.kt")))
+        }
 
         @Test
         fun `coverageFor includes uncovered lines section in response`() {
@@ -253,7 +269,7 @@ class RunTestToolTest {
                 listOf(ClassCoverage("com.example.Foo", 5, 3, 0, 0, uncoveredLineNumbers = listOf(4, 5)))
             )
             val source = listOf("package com.example", "", "class Foo {", "    fun a() {}", "    fun b() {}", "}")
-            val tool = toolReturning(coverage, source)
+            val tool = toolReturning(coverage, source, { emptySet() })
 
             val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest"), listOf("**/Foo.kt")))
 
@@ -269,11 +285,55 @@ class RunTestToolTest {
                 listOf(ClassCoverage("com.example.Foo", 5, 3, 0, 0,
                     coveredLineNumbers = listOf(1, 2, 3), uncoveredLineNumbers = listOf(4)))
             )
-            val tool = toolReturning(coverage, listOf("a", "b", "c", "d"))
+            val tool = toolReturning(coverage, listOf("a", "b", "c", "d"), { emptySet() })
 
             val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest")))
 
             assertThat(text).doesNotContain("Uncovered lines")
+        }
+
+        @Test
+        fun `unloaded class adds heuristic uncovered lines while preserving engine data`() {
+            val coverage = PackageCoverage(
+                "com.example", 3, 2, 0, 0,
+                listOf(ClassCoverage("com.example.Foo", 3, 2, 0, 0,
+                    coveredLineNumbers = listOf(4, 5), uncoveredLineNumbers = listOf(6)))
+            )
+            val source = listOf(
+                "package com.example",   // 1 - not code
+                "",                      // 2 - not code
+                "class Foo {",           // 3 - code, not in engine → heuristic
+                "    fun a() = 1",       // 4 - engine covered
+                "    fun b() = 2",       // 5 - engine covered
+                "    fun c() = 3",       // 6 - engine uncovered
+                "}",                     // 7 - not code
+                "fun topLevel() = 42"    // 8 - code, not in engine → heuristic
+            )
+
+            val text = runWithCoverageFor(coverage, source, fooAndFooKt)
+
+            assertThat(text).contains("Foo.kt: 2/5 lines")
+            assertThat(text).contains("Uncovered lines in src/main/kotlin/com/example/Foo.kt:")
+            assertThat(text).contains("3: class Foo {")
+            assertThat(text).contains("6:     fun c() = 3")
+            assertThat(text).contains("8: fun topLevel() = 42")
+        }
+
+        @Test
+        fun `all classes loaded uses exact engine numbers without heuristic`() {
+            val coverage = PackageCoverage(
+                "com.example", 6, 4, 0, 0,
+                listOf(
+                    ClassCoverage("com.example.Foo", 3, 2, 0, 0,
+                        coveredLineNumbers = listOf(4, 5), uncoveredLineNumbers = listOf(6)),
+                    ClassCoverage("com.example.FooKt", 3, 2, 0, 0,
+                        coveredLineNumbers = listOf(8, 9), uncoveredLineNumbers = listOf(10))
+                )
+            )
+
+            val text = runWithCoverageFor(coverage, null, fooAndFooKt)
+
+            assertThat(text).contains("Foo.kt: 4/6 lines")
         }
     }
 }

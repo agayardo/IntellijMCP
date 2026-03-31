@@ -740,22 +740,24 @@ internal fun correctForUnloadedClasses(
 ): List<FileCoverage> = fileCoverages.map { file ->
     if (!patterns.any { matchesGlob(it, file.filePath) }) return@map file
     val expectedClasses = classesInFile(file.filePath)
-    // Only apply heuristic when all classes are unloaded; mixed loaded/unloaded is ambiguous
-    if (expectedClasses.isEmpty() || expectedClasses.any { it in loadedClassNames }) return@map file
+    // Apply heuristic only for lines not seen by the engine; preserves engine data for loaded classes
+    if (expectedClasses.isEmpty() || expectedClasses.all { it in loadedClassNames }) return@map file
 
     val sourceLines = sourceReader(file.filePath) ?: return@map file
+    val engineLineNumbers = file.coveredLineNumbers.toSet() + file.uncoveredLineNumbers.toSet()
     val heuristicUncovered = sourceLines.indices
         .map { it + 1 }
-        .filter { isCodeLine(sourceLines[it - 1]) }
+        .filter { it !in engineLineNumbers && isCodeLine(sourceLines[it - 1]) }
+    val allUncovered = (file.uncoveredLineNumbers + heuristicUncovered).sorted()
 
     FileCoverage(
         filePath = file.filePath,
-        totalLines = heuristicUncovered.size,
-        coveredLines = 0,
-        totalBranches = 0,
-        coveredBranches = 0,
-        coveredLineNumbers = emptyList(),
-        uncoveredLineNumbers = heuristicUncovered
+        totalLines = file.coveredLines + allUncovered.size,
+        coveredLines = file.coveredLines,
+        totalBranches = file.totalBranches,
+        coveredBranches = file.coveredBranches,
+        coveredLineNumbers = file.coveredLineNumbers,
+        uncoveredLineNumbers = allUncovered
     )
 }
 

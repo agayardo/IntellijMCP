@@ -58,9 +58,20 @@ class CorrectForUnloadedClassesTest {
         }
 
         @Test
-        fun `mixed loaded and unloaded classes skips heuristic`() {
+        fun `mixed loaded and unloaded adds heuristic lines for unloaded class`() {
             val fileCoverages = listOf(
-                FileCoverage("src/Foo.kt", 3, 3, 0, 0, listOf(4, 5, 6), emptyList())
+                FileCoverage("src/Foo.kt", 3, 3, 0, 0, listOf(3, 4, 5), emptyList())
+            )
+            val source = listOf(
+                "package com.example",       // 1 - not code
+                "",                          // 2 - not code
+                "class Foo {",               // 3 - engine covered
+                "    fun loaded() = 1",      // 4 - engine covered
+                "    fun loaded2() = 2",     // 5 - engine covered
+                "}",                         // 6 - not code
+                "",                          // 7 - not code
+                "fun topLevel() = 42",       // 8 - code, not in engine
+                "val topVal = \"hello\""     // 9 - code, not in engine
             )
 
             val result = correctForUnloadedClasses(
@@ -68,10 +79,12 @@ class CorrectForUnloadedClassesTest {
                 patterns = listOf("**/*.kt"),
                 loadedClassNames = setOf("com.example.Foo"),
                 classesInFile = { setOf("com.example.Foo", "com.example.FooKt") },
-                sourceReader = { error("should not be called") }
+                sourceReader = { source }
             )
 
-            assertThat(result[0]).isEqualTo(fileCoverages[0])
+            assertThat(result[0].coveredLines).isEqualTo(3)
+            assertThat(result[0].uncoveredLineNumbers).containsExactly(8, 9)
+            assertThat(result[0].totalLines).isEqualTo(5)
         }
     }
 
