@@ -483,8 +483,7 @@ private fun createJUnitConfig(project: Project, params: RunTestTool.ConfigParams
     val runManager = RunManager.getInstance(project)
     val junitType = com.intellij.execution.junit.JUnitConfigurationType.getInstance()
     val factory = junitType.configurationFactories[0]
-    val configName = "RunTest-${configSuffix(params.targets)}"
-    val settings = runManager.createConfiguration(configName, factory)
+    val settings = runManager.createConfiguration(RUN_CONFIGURATION_NAME, factory)
     val config = settings.configuration as com.intellij.execution.junit.JUnitConfiguration
 
     when (params.scope) {
@@ -511,7 +510,7 @@ private fun createJUnitConfig(project: Project, params: RunTestTool.ConfigParams
     config.setModule(params.module)
     settings.isTemporary = true
     runManager.addConfiguration(settings)
-    return configName
+    return RUN_CONFIGURATION_NAME
 }
 
 private fun configurePattern(config: com.intellij.execution.junit.JUnitConfiguration, patterns: List<String>) {
@@ -545,8 +544,7 @@ private fun createGradleConfig(
     val runManager = RunManager.getInstance(project)
     val gradleType = GradleExternalTaskConfigurationType.getInstance()
     val factory = gradleType.factory
-    val configName = "RunTest-${configSuffix(params.targets)}"
-    val settings = runManager.createConfiguration(configName, factory)
+    val settings = runManager.createConfiguration(RUN_CONFIGURATION_NAME, factory)
     val config = settings.configuration as GradleRunConfiguration
 
     val taskSettings = config.settings
@@ -558,9 +556,10 @@ private fun createGradleConfig(
 
     settings.isTemporary = true
     runManager.addConfiguration(settings)
-    return configName
+    return RUN_CONFIGURATION_NAME
 }
 
+private const val RUN_CONFIGURATION_NAME = "DevelopmentMCP: Run tests"
 private const val TEST_TIMEOUT_MINUTES = 10L
 private const val COVERAGE_TIMEOUT_SECONDS = 60L
 private const val GRADLE_TEST_TASK = "test"
@@ -587,10 +586,6 @@ internal fun validateTestParams(scope: String, target: String): ValidationResult
 
     return ValidationResult(testScope, null)
 }
-
-private fun configSuffix(targets: List<String>) =
-    if (targets.size == 1) targets.single().substringAfterLast('.')
-    else "${targets.size}-targets"
 
 private val SCOPE_BY_NAME = RunTestTool.TestScope.entries.associateBy { it.name.lowercase() }
 
