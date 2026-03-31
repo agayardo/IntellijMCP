@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference
 class FileBridgeTest {
 
     private val tempDir = File("build/private/tmp/FileBridgeTest").apply { deleteRecursively(); mkdirs() }
-    private val commandDir = tempDir.toPath().resolve(".intellij-dev-plugin")
+    private val commandDir = tempDir.toPath().resolve(".intellij-dev-mcp")
     private lateinit var bridge: FileBridge
     private lateinit var receiver: FileProtocolServer
     private var serverThread: Thread? = null

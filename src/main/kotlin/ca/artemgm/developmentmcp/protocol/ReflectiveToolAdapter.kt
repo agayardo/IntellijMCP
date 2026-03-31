@@ -49,15 +49,19 @@ class ReflectiveToolAdapter(private val instance: Any, private val function: KFu
     // Kotlin reflection preserves parameter names without -parameters compiler flag,
     // unlike Java reflection which needs it.
     private fun generateInputSchema(paramDescriptionByName: Map<String, String>): String {
-        val propertyByName = linkedMapOf<String, Map<String, String>>()
+        val propertyByName = linkedMapOf<String, Any>()
         val requiredNames = mutableListOf<String>()
 
         for (param in function.valueParameters) {
             val name = param.name ?: continue
-            val javaType = param.type.javaType as? Class<*> ?: String::class.java
             val description = paramDescriptionByName[name] ?: name
 
-            propertyByName[name] = mapOf("type" to jsonType(javaType), "description" to description)
+            propertyByName[name] = if (isList(param)) {
+                mapOf("type" to "array", "items" to mapOf("type" to "string"), "description" to description)
+            } else {
+                val javaType = param.type.javaType as? Class<*> ?: String::class.java
+                mapOf("type" to jsonType(javaType), "description" to description)
+            }
             if (!param.type.isMarkedNullable) requiredNames.add(name)
         }
 
@@ -79,10 +83,19 @@ private fun jsonType(clazz: Class<*>) = when (clazz) {
     else -> "string"
 }
 
+private fun isList(param: KParameter) =
+    (param.type.javaType as? Class<*>)?.let { List::class.java.isAssignableFrom(it) } == true
+        || param.type.classifier == List::class
+
+@Suppress("UNCHECKED_CAST")
 private fun coerce(value: Any?, param: KParameter): Any? {
     if (value == null) {
         if (!param.type.isMarkedNullable) throw IllegalArgumentException("Missing required parameter: ${param.name}")
         return null
+    }
+    if (isList(param)) return when (value) {
+        is List<*> -> (value as List<Any?>).map { it?.toString() ?: "" }
+        else -> listOf(value.toString())
     }
     return when (param.type.javaType) {
         String::class.java, java.lang.String::class.java -> value.toString()

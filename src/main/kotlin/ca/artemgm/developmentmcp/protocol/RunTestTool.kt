@@ -1,5 +1,10 @@
 package ca.artemgm.developmentmcp.protocol
 
+import com.intellij.build.BuildProgressListener
+import com.intellij.build.BuildViewManager
+import com.intellij.build.events.BuildEvent
+import com.intellij.build.events.FileMessageEvent
+import com.intellij.build.events.MessageEvent
 import com.intellij.coverage.CoverageDataManager
 import com.intellij.coverage.CoverageExecutor
 import com.intellij.coverage.CoverageSuiteListener
@@ -32,11 +37,12 @@ import org.jetbrains.plugins.gradle.service.execution.GradleRunConfiguration
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import org.jetbrains.plugins.gradle.util.GradleUtil
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
 class RunTestTool internal constructor(
     private val configCreator: (ConfigParams) -> String,
-    private val executionLauncher: (String, String) -> ExecutionResult,
+    private val executionLauncher: (String, Set<String>) -> ExecutionResult,
     private val module: Module
 ) {
 
@@ -46,21 +52,20 @@ class RunTestTool internal constructor(
             if (gradleData != null) createGradleConfig(project, params, gradleData)
             else createJUnitConfig(project, params)
         },
-        executionLauncher = { configName, packageName -> launchWithCoverage(project, configName, packageName) },
+        executionLauncher = { configName, packageNames ->
+            launchWithCoverage(project, configName, packageNames)
+        },
         module = module
     )
 
     fun handle(
-        scope: String,
-        target: String
+        scope: TestScope,
+        targets: List<String>
     ): CallToolResult {
-        val (testScope, error) = validateTestParams(scope, target)
-        if (error != null) return error
-
         return try {
-            val configName = configCreator(ConfigParams(testScope!!, target, module))
-            val packageName = resolvePackageName(testScope, target)
-            val result = executionLauncher(configName, packageName)
+            val configName = configCreator(ConfigParams(scope, targets, module))
+            val packageNames = targets.map { resolvePackageName(scope, it) }.toSet()
+            val result = executionLauncher(configName, packageNames)
             val response = if (result.coverage != null)
                 "${result.testOutput}\n\n${formatCoverage(result.coverage)}"
             else
@@ -78,7 +83,7 @@ class RunTestTool internal constructor(
 
     data class ConfigParams(
         val scope: TestScope,
-        val target: String,
+        val targets: List<String>,
         val module: Module
     )
 
@@ -145,7 +150,7 @@ private fun formatCoverage(coverage: PackageCoverage): String {
     return sb.toString().trimEnd()
 }
 
-private fun launchWithCoverage(project: Project, configName: String, packageName: String): ExecutionResult {
+private fun launchWithCoverage(project: Project, configName: String, packageNames: Set<String>): ExecutionResult {
     val runManager = RunManager.getInstance(project)
     val settings = runManager.findConfigurationByName(configName)
         ?: throw IllegalStateException("Configuration '$configName' not found after creation")
@@ -172,7 +177,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
                     coverageFuture.complete(null)
                     return
                 }
-                coverageFuture.complete(extractPackageCoverage(projectData, packageName))
+                coverageFuture.complete(extractPackageCoverage(projectData, packageNames))
             } catch (e: Exception) {
                 coverageFuture.complete(null)
             } finally {
@@ -181,12 +186,31 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
         }
     }, coverageDisposable)
 
+    val buildErrors = BuildErrorCollector()
+    val buildDisposable = Disposer.newDisposable("build-listener-$configName")
+    Disposer.register(project as com.intellij.openapi.Disposable, buildDisposable)
+    project.getService(BuildViewManager::class.java).addListener(buildErrors, buildDisposable)
+
     val connection = project.messageBus.connect()
     val processOutput = StringBuilder()
 
     connection.subscribe(ExecutionManager.EXECUTION_TOPIC, object : ExecutionListener {
+        override fun processNotStarted(executorId: String, env: ExecutionEnvironment, cause: Throwable?) {
+            if (env.runProfile.name != configName) return
+            try {
+                val message = buildNotStartedMessage(configName, cause, buildErrors.errors())
+                testResultFuture.complete(TestRunSummary(message, true))
+                coverageFuture.complete(null)
+            } finally {
+                connection.disconnect()
+                disposeSafely(buildDisposable)
+                disposeSafely(coverageDisposable)
+            }
+        }
+
         override fun processStarted(executorId: String, env: ExecutionEnvironment, handler: ProcessHandler) {
             if (env.runProfile.name != configName) return
+            disposeSafely(buildDisposable)
 
             val capturedConsole = env.contentToReuse?.executionConsole
 
@@ -215,6 +239,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
             ProgramRunnerUtil.executeConfiguration(settings, coverageExecutor)
         } catch (e: Exception) {
             connection.disconnect()
+            disposeSafely(buildDisposable)
             testResultFuture.completeExceptionally(e)
             coverageFuture.complete(null)
         }
@@ -237,18 +262,19 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
     return ExecutionResult(testSummary.output, testSummary.failed, coverage)
 }
 
-private fun extractPackageCoverage(projectData: ProjectData, packageName: String): PackageCoverage {
-    val packagePrefix = "$packageName."
+internal fun extractPackageCoverage(projectData: ProjectData, packageNames: Set<String>): PackageCoverage {
     val matchingClasses = projectData.classes.filter { (className, _) ->
-        (className.startsWith(packagePrefix) || className == packageName) && !isTestClass(className, packagePrefix)
+        packageNames.any { pkg -> classInPackage(className, pkg) } && !isTestClass(className)
     }
 
     val classCoverages = matchingClasses.map { (className, classData) ->
         extractClassCoverage(className, classData)
     }
 
+    val label = if (packageNames.size == 1) packageNames.single() else packageNames.sorted().joinToString(", ")
+
     return PackageCoverage(
-        packageName = packageName,
+        packageName = label,
         totalLines = classCoverages.sumOf { it.totalLines },
         coveredLines = classCoverages.sumOf { it.coveredLines },
         totalBranches = classCoverages.sumOf { it.totalBranches },
@@ -357,6 +383,21 @@ private fun formatTestResults(configName: String, root: AbstractTestProxy, exitC
     return TestRunSummary(sb.toString().trimEnd(), runFailed)
 }
 
+internal fun buildNotStartedMessage(configName: String, cause: Throwable?, buildErrors: List<String>): String {
+    val sb = StringBuilder("Configuration '$configName' failed to start — build or compilation error")
+    if (buildErrors.isNotEmpty()) {
+        sb.appendLine()
+        sb.appendLine()
+        sb.appendLine("Build errors:")
+        for (error in buildErrors) sb.appendLine("  $error")
+    } else if (cause != null) {
+        sb.appendLine()
+        sb.appendLine()
+        sb.append(cause.message ?: cause.toString())
+    }
+    return sb.toString().trimEnd()
+}
+
 private fun fallbackMessage(configName: String, exitCode: Int, processOutput: String): String {
     val sb = StringBuilder("Configuration '$configName' finished with exit code $exitCode")
     val trimmed = processOutput.trim()
@@ -372,21 +413,25 @@ private fun createJUnitConfig(project: Project, params: RunTestTool.ConfigParams
     val runManager = RunManager.getInstance(project)
     val junitType = com.intellij.execution.junit.JUnitConfigurationType.getInstance()
     val factory = junitType.configurationFactories[0]
-    val configName = "RunTest-${params.target.substringAfterLast('.')}"
+    val configName = "RunTest-${configSuffix(params.targets)}"
     val settings = runManager.createConfiguration(configName, factory)
     val config = settings.configuration as com.intellij.execution.junit.JUnitConfiguration
 
     when (params.scope) {
-        RunTestTool.TestScope.PACKAGE -> {
+        RunTestTool.TestScope.PACKAGE -> if (params.targets.size == 1) {
             config.persistentData.TEST_OBJECT = com.intellij.execution.junit.JUnitConfiguration.TEST_PACKAGE
-            config.persistentData.PACKAGE_NAME = params.target
+            config.persistentData.PACKAGE_NAME = params.targets.single()
+        } else {
+            configurePattern(config, params.targets.map { "$it.*" })
         }
-        RunTestTool.TestScope.CLASS -> {
+        RunTestTool.TestScope.CLASS -> if (params.targets.size == 1) {
             config.persistentData.TEST_OBJECT = com.intellij.execution.junit.JUnitConfiguration.TEST_CLASS
-            config.persistentData.MAIN_CLASS_NAME = params.target
+            config.persistentData.MAIN_CLASS_NAME = params.targets.single()
+        } else {
+            configurePattern(config, params.targets)
         }
         RunTestTool.TestScope.METHOD -> {
-            val (className, methodName) = params.target.split("#", limit = 2)
+            val (className, methodName) = params.targets.single().split("#", limit = 2)
             config.persistentData.TEST_OBJECT = com.intellij.execution.junit.JUnitConfiguration.TEST_METHOD
             config.persistentData.MAIN_CLASS_NAME = className
             config.persistentData.METHOD_NAME = methodName
@@ -399,8 +444,27 @@ private fun createJUnitConfig(project: Project, params: RunTestTool.ConfigParams
     return configName
 }
 
+private fun configurePattern(config: com.intellij.execution.junit.JUnitConfiguration, patterns: List<String>) {
+    config.persistentData.TEST_OBJECT = com.intellij.execution.junit.JUnitConfiguration.TEST_PATTERN
+    config.persistentData.setPatterns(linkedSetOf(*patterns.toTypedArray()))
+}
+
 private fun disposeSafely(disposable: com.intellij.openapi.Disposable) {
     try { Disposer.dispose(disposable) } catch (_: Exception) { }
+}
+
+private class BuildErrorCollector : BuildProgressListener {
+    private val messages = CopyOnWriteArrayList<String>()
+
+    override fun onEvent(buildId: Any, event: BuildEvent) {
+        if (event is MessageEvent && event.kind == MessageEvent.Kind.ERROR) {
+            val location = (event as? FileMessageEvent)?.filePosition?.let { formatFilePosition(it) }
+            val prefix = if (location != null) "$location: " else ""
+            messages.add("$prefix${event.message}")
+        }
+    }
+
+    fun errors(): List<String> = messages.toList()
 }
 
 private fun createGradleConfig(
@@ -411,7 +475,7 @@ private fun createGradleConfig(
     val runManager = RunManager.getInstance(project)
     val gradleType = GradleExternalTaskConfigurationType.getInstance()
     val factory = gradleType.factory
-    val configName = "RunTest-${params.target.substringAfterLast('.')}"
+    val configName = "RunTest-${configSuffix(params.targets)}"
     val settings = runManager.createConfiguration(configName, factory)
     val config = settings.configuration as GradleRunConfiguration
 
@@ -419,7 +483,8 @@ private fun createGradleConfig(
     taskSettings.externalSystemIdString = GradleConstants.SYSTEM_ID.id
     taskSettings.externalProjectPath = gradleModuleData.data.linkedExternalProjectPath
     taskSettings.taskNames = listOf(gradleTestTaskName(gradleModuleData.data.id))
-    taskSettings.scriptParameters = buildGradleTestFilter(params.scope, params.target)
+    taskSettings.scriptParameters = params.targets
+        .joinToString(" ") { buildGradleTestFilter(params.scope, it) }
 
     settings.isTemporary = true
     runManager.addConfiguration(settings)
@@ -453,6 +518,10 @@ internal fun validateTestParams(scope: String, target: String): ValidationResult
     return ValidationResult(testScope, null)
 }
 
+private fun configSuffix(targets: List<String>) =
+    if (targets.size == 1) targets.single().substringAfterLast('.')
+    else "${targets.size}-targets"
+
 private val SCOPE_BY_NAME = RunTestTool.TestScope.entries.associateBy { it.name.lowercase() }
 
 private fun buildGradleTestFilter(scope: RunTestTool.TestScope, target: String) = when (scope) {
@@ -464,9 +533,12 @@ private fun buildGradleTestFilter(scope: RunTestTool.TestScope, target: String) 
     }
 }
 
-private fun isTestClass(fqClassName: String, packagePrefix: String): Boolean {
-    val topLevelSimpleName = fqClassName.removePrefix(packagePrefix).substringBefore('$')
-    return TEST_CLASS_SUFFIXES.any { topLevelSimpleName.endsWith(it) }
+private fun classInPackage(fqClassName: String, packageName: String) =
+    fqClassName.startsWith("$packageName.") || fqClassName == packageName
+
+private fun isTestClass(fqClassName: String): Boolean {
+    val simpleName = fqClassName.substringAfterLast('.').substringBefore('$')
+    return TEST_CLASS_SUFFIXES.any { simpleName.endsWith(it) }
 }
 
 private val TEST_CLASS_SUFFIXES = listOf("Test", "Tests", "TestCase", "IT")
@@ -478,18 +550,37 @@ private fun extractRelevantFrames(stacktrace: String): List<String> {
     val causeIndex = lines.indexOfFirst { it.trimStart().startsWith("Caused by:") }
     val causeLine = if (causeIndex >= 0) lines[causeIndex] else null
     val primaryLines = if (causeIndex >= 0) lines.subList(0, causeIndex) else lines
-    val frames = primaryLines.filter { line ->
-        val trimmed = line.trimStart()
-        trimmed.startsWith("at ") && FRAMEWORK_PACKAGE_PREFIXES.none { prefix -> trimmed.startsWith("at $prefix") }
-    }
+    val primaryFrames = filterFrames(primaryLines, keepFirstFrame = exceptionLine == null)
+
     val result = mutableListOf<String>()
     if (exceptionLine != null) result.add(exceptionLine.trim())
-    result.addAll(frames.take(MAX_STACKTRACE_FRAMES))
-    if (causeLine != null) result.add(causeLine.trim())
+    result.addAll(primaryFrames.take(MAX_STACKTRACE_FRAMES))
+    if (causeLine != null) {
+        result.add(causeLine.trim())
+        val causeLines = lines.subList(causeIndex + 1, lines.size)
+        result.addAll(filterFrames(causeLines, keepFirstFrame = false).take(MAX_STACKTRACE_FRAMES))
+    }
     return result
 }
 
+private fun filterFrames(lines: List<String>, keepFirstFrame: Boolean): List<String> {
+    var first = true
+    return lines.filter { line ->
+        val trimmed = line.trimStart()
+        if (!trimmed.startsWith("at ")) return@filter false
+        val isFirst = first.also { first = false }
+        (keepFirstFrame && isFirst) || FRAMEWORK_PACKAGE_PREFIXES.none { prefix -> trimmed.startsWith("at $prefix") }
+    }.map { it.trim() }
+}
+
 private const val MAX_STACKTRACE_FRAMES = 5
+
+// FilePosition uses 0-based lines; display as 1-based for human readability.
+private fun formatFilePosition(pos: com.intellij.build.FilePosition): String? {
+    val file = pos.file ?: return null
+    val line = pos.startLine + 1
+    return "${file.name}:$line"
+}
 
 private val FRAMEWORK_PACKAGE_PREFIXES = listOf(
     "org.junit.",

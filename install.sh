@@ -17,11 +17,11 @@ curl -fSL -o "$tmp/plugin.zip" "$plugin_url"
 curl -fSL -o "$tmp/bridge.zip" "$bridge_url"
 
 # Install the stdio bridge
-rm -rf "$install_dir/bridge"
 mkdir -p "$install_dir"
-unzip -qo "$tmp/bridge.zip" -d "$install_dir"
-mv "$install_dir/stdio-mcp-server" "$install_dir/bridge"
-chmod +x "$install_dir/bridge/bin/stdio-mcp-server"
+unzip -qo "$tmp/bridge.zip" -d "$tmp"
+rm -rf "$install_dir/bin" "$install_dir/lib"
+cp -R "$tmp/stdio-mcp-server/"* "$install_dir/"
+chmod +x "$install_dir/bin/stdio-mcp-server"
 
 # Install the IntelliJ plugin
 jetbrains_dir="$HOME/Library/Application Support/JetBrains"
@@ -38,7 +38,7 @@ else
   echo "Plugin installed to $plugins_dir"
 fi
 
-bridge_path="$install_dir/bridge/bin/stdio-mcp-server"
+bridge_path="$install_dir/bin/stdio-mcp-server"
 echo ""
 echo "Done. Bridge installed to $bridge_path"
 echo ""

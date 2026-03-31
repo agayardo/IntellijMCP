@@ -32,6 +32,14 @@ unzip -o "$plugin_zip" -d "$plugins_dir"
 
 echo "Plugin installed to: $plugins_dir"
 echo "MCP server binary:   $mcp_binary"
+
+# Update local MCP bridge installation
+install_dir="$HOME/.intellij-dev-mcp"
+mkdir -p "$install_dir"
+rm -rf "$install_dir/bin" "$install_dir/lib"
+cp -R "$mcp_dist/"* "$install_dir/"
+chmod +x "$install_dir/bin/stdio-mcp-server"
+echo "Bridge updated:      $install_dir/bin/stdio-mcp-server"
 echo ""
 echo "Restart IntelliJ to activate the plugin."
 

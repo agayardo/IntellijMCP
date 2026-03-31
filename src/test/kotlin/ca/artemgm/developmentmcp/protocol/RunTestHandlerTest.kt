@@ -1,5 +1,6 @@
 package ca.artemgm.developmentmcp.protocol
 
+import ca.artemgm.developmentmcp.protocol.RunTestTool.TestScope
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -8,14 +9,13 @@ class RunTestHandlerTest {
 
     private val stubModule = stubModule()
     private val stubContext = ResolvedContext(stubProject("ProjectA"), stubModule)
-    private var capturedContext: ResolvedContext? = null
+    private var capturedTargets: List<String>? = null
 
     private val handler = RunTestHandler(
         contextResolver = stubContextResolver(stubContext),
         toolFactory = { ctx ->
-            capturedContext = ctx
             RunTestTool(
-                configCreator = { "RunTest-stub" },
+                configCreator = { params -> capturedTargets = params.targets; "RunTest-stub" },
                 executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null) },
                 module = ctx.module
             )
@@ -39,9 +39,12 @@ class RunTestHandlerTest {
         }
 
         @Test
-        fun `target is required in schema`() {
-            assertThat(schemaProperty(schema, "target")["type"]).isEqualTo("string")
-            assertThat(requiredParams()).contains("target")
+        fun `targets is required array of strings in schema`() {
+            assertThat(schemaProperty(schema, "targets")["type"]).isEqualTo("array")
+            @Suppress("UNCHECKED_CAST")
+            val items = schemaProperty(schema, "targets")["items"] as Map<String, Any?>
+            assertThat(items["type"]).isEqualTo("string")
+            assertThat(requiredParams()).contains("targets")
         }
 
         @Test
@@ -62,18 +65,26 @@ class RunTestHandlerTest {
             var resolverCalled = false
             val handler = handlerWithResolver(onResolve = { _, _ -> resolverCalled = true })
 
-            val result = handler.handle("bogus", "com.example", null)
+            val result = handler.handle("bogus", listOf("com.example"), null)
 
             assertThat(result.isError).isTrue()
             assertThat(resolverCalled).isFalse()
         }
 
         @Test
-        fun `empty target does not call context resolver`() {
+        fun `empty targets list produces error`() {
+            val result = handler.handle("class", emptyList(), null)
+
+            assertThat(result.isError).isTrue()
+            assertThat(textOf(result)).containsIgnoringCase("empty")
+        }
+
+        @Test
+        fun `empty target string produces error`() {
             var resolverCalled = false
             val handler = handlerWithResolver(onResolve = { _, _ -> resolverCalled = true })
 
-            val result = handler.handle("class", "", null)
+            val result = handler.handle("class", listOf(""), null)
 
             assertThat(result.isError).isTrue()
             assertThat(resolverCalled).isFalse()
@@ -84,10 +95,18 @@ class RunTestHandlerTest {
             var resolverCalled = false
             val handler = handlerWithResolver(onResolve = { _, _ -> resolverCalled = true })
 
-            val result = handler.handle("method", "com.example.MyTest", null)
+            val result = handler.handle("method", listOf("com.example.MyTest"), null)
 
             assertThat(result.isError).isTrue()
             assertThat(resolverCalled).isFalse()
+        }
+
+        @Test
+        fun `invalid target among multiple targets produces error before execution`() {
+            val result = handler.handle("method", listOf("com.example.A#foo", "com.example.B"), null)
+
+            assertThat(result.isError).isTrue()
+            assertThat(textOf(result)).contains("#")
         }
     }
 
@@ -95,18 +114,11 @@ class RunTestHandlerTest {
     inner class ContextResolution {
 
         @Test
-        fun `resolved context is passed to tool factory`() {
-            handler.handle("class", "com.example.MyTest", null)
-
-            assertThat(capturedContext).isSameAs(stubContext)
-        }
-
-        @Test
         fun `method scope resolves using class name before hash`() {
             var resolvedTarget: String? = null
             val handler = handlerWithResolver(onResolve = { target, _ -> resolvedTarget = target })
 
-            handler.handle("method", "com.example.MyTest#testFoo", null)
+            handler.handle("method", listOf("com.example.MyTest#testFoo"), null)
 
             assertThat(resolvedTarget).isEqualTo("com.example.MyTest")
         }
@@ -116,7 +128,7 @@ class RunTestHandlerTest {
             var resolvedModuleName: String? = null
             val handler = handlerWithResolver(onResolve = { _, moduleName -> resolvedModuleName = moduleName })
 
-            handler.handle("class", "com.example.MyTest", "my-module")
+            handler.handle("class", listOf("com.example.MyTest"), "my-module")
 
             assertThat(resolvedModuleName).isEqualTo("my-module")
         }
@@ -126,7 +138,7 @@ class RunTestHandlerTest {
             var resolvedModuleName: String? = "sentinel"
             val handler = handlerWithResolver(onResolve = { _, moduleName -> resolvedModuleName = moduleName })
 
-            handler.handle("class", "com.example.MyTest", null)
+            handler.handle("class", listOf("com.example.MyTest"), null)
 
             assertThat(resolvedModuleName).isNull()
         }
@@ -138,18 +150,29 @@ class RunTestHandlerTest {
                 toolFactory = { stubTool(it.module) }
             )
 
-            val result = handler.handle("class", "com.example.Missing", null)
+            val result = handler.handle("class", listOf("com.example.Missing"), null)
 
             assertThat(textOf(result)).contains("Could not find", "com.example.Missing")
             assertThat(result.isError).isTrue()
         }
 
         @Test
-        fun `successful invocation delegates to tool and returns result`() {
-            val result = handler.handle("class", "com.example.MyTest", null)
+        fun `successful single-target invocation delegates to tool and returns result`() {
+            val result = handler.handle("class", listOf("com.example.MyTest"), null)
 
             assertThat(textOf(result)).contains("Total: 1, Passed: 1, Failed: 0")
             assertThat(result.isError).isFalse()
+        }
+    }
+
+    @Nested
+    inner class MultiTarget {
+
+        @Test
+        fun `all targets are passed to a single tool invocation`() {
+            handler.handle("class", listOf("com.example.FooTest", "com.example.BarTest"), null)
+
+            assertThat(capturedTargets).containsExactly("com.example.FooTest", "com.example.BarTest")
         }
     }
 

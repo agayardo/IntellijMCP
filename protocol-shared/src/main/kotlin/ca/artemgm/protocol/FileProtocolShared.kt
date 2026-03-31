@@ -22,7 +22,7 @@ value class RequestId(val value: String) {
 
 data class ReceivedRequest(val id: RequestId, val toolRequest: CallToolRequest)
 
-val PROTOCOL_DIR: Path get() = Path.of(System.getProperty("user.home"), ".intellij-dev-plugin")
+val PROTOCOL_DIR: Path get() = Path.of(System.getProperty("user.home"), ".intellij-dev-mcp")
 
 internal fun findExisting(dir: Path, matches: (String) -> Boolean): Path? =
     Files.list(dir).use { stream ->

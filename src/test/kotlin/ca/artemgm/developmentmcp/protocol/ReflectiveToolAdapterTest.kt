@@ -93,6 +93,24 @@ class ReflectiveToolAdapterTest {
 
         assertThat(schemaProperty(schema, "message")["description"]).isEqualTo("message")
     }
+
+    @Test
+    fun `list parameter generates array schema with string items`() {
+        val schema = parseSchema(ReflectiveToolAdapter(ListParamTool, ListParamTool::process).toRegistration())
+
+        assertThat(schemaProperty(schema, "items")["type"]).isEqualTo("array")
+        @Suppress("UNCHECKED_CAST")
+        val items = schemaProperty(schema, "items")["items"] as Map<String, Any?>
+        assertThat(items["type"]).isEqualTo("string")
+    }
+
+    @Test
+    fun `handler coerces list argument elements to strings`() {
+        val registration = ReflectiveToolAdapter(ListParamTool, ListParamTool::process).toRegistration()
+        val result = registration.handler(mapOf("items" to listOf("a", "b", "c")))
+
+        assertThat((result.content.first() as TextContent).text).isEqualTo("a,b,c")
+    }
 }
 
 internal object MultiParamTool {
@@ -117,4 +135,9 @@ internal object AnnotatedTool {
 internal object NoParamDescTool {
     @ToolDefinition(name = "annotated_echo", description = "Echoes a message")
     fun echo(message: String) = message
+}
+
+internal object ListParamTool {
+    @ToolDefinition(name = "list_param", description = "Processes a list")
+    fun process(items: List<String>) = items.joinToString(",")
 }

@@ -16,7 +16,7 @@ import java.time.Duration
 class IntegrationTest {
 
     private val tempDir = File("build/private/tmp/IntegrationTest").apply { deleteRecursively(); mkdirs() }
-    private val commandDir = tempDir.toPath().resolve(".intellij-dev-plugin")
+    private val commandDir = tempDir.toPath().resolve(".intellij-dev-mcp")
     private lateinit var sender: FileProtocolClient
     private lateinit var serverThread: Thread
 
