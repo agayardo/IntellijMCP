@@ -276,6 +276,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
 
     DumbService.getInstance(project).smartInvokeLater {
         try {
+            settings.checkSettings(coverageExecutor)
             ProgramRunnerUtil.executeConfiguration(settings, coverageExecutor)
         } catch (e: Exception) {
             connection.disconnect()
