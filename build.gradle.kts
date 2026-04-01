@@ -6,11 +6,40 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.10.2"
 }
 
+allprojects {
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    apply(plugin = "org.jetbrains.kotlin.jvm")
+
+    java {
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
+
+    tasks.withType<Test> {
+        useJUnitPlatform()
+    }
+
+    dependencies {
+        testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+        testImplementation("org.assertj:assertj-core:3.27.7")
+        testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
+    }
+}
+
 group = "ca.artemgm"
 version = "1.0-SNAPSHOT"
 
 repositories {
-    mavenCentral()
     intellijPlatform {
         defaultRepositories()
     }
@@ -35,7 +64,7 @@ dependencies {
 
     testImplementation("org.assertj:assertj-core:3.27.7")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
-    // do not remove: junit4 is needed by intellij junit platform
+    // junit4 is needed by the IntelliJ test platform runner
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
@@ -63,10 +92,9 @@ tasks {
         }
     }
 
-    // Set the JVM compatibility versions
     withType<JavaCompile> {
-        sourceCompatibility = "21"
-        targetCompatibility = "21"
+        sourceCompatibility = "17"
+        targetCompatibility = "17"
     }
 
     withType<Test> {
@@ -97,6 +125,6 @@ sourceSets.main {
 
 kotlin {
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
