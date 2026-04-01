@@ -17,7 +17,9 @@ class FileProtocolServer internal constructor(
 
     fun receiveRequest(): ReceivedRequest {
         while (true) {
-            val requestFile = waitForFile(directory) { isRequestFile(it) }
+            val requestFile = waitForFile(directory, timeoutMessage = "Timed out waiting for request") {
+                isRequestFile(it)
+            }
             if (isStale(requestFile)) {
                 Files.deleteIfExists(requestFile)
                 continue

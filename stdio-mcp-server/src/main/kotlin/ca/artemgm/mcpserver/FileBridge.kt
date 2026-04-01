@@ -16,4 +16,4 @@ internal class FileBridge(
     }
 }
 
-private val RESPONSE_TIMEOUT = Duration.ofSeconds(120)
+private val RESPONSE_TIMEOUT = Duration.ofMinutes(15)

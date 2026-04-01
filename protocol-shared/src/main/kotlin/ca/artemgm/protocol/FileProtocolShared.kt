@@ -27,7 +27,12 @@ internal fun findExisting(dir: Path, matches: (String) -> Boolean): Path? =
         stream.filter { matches(it.fileName.toString()) }.findFirst().orElse(null)
     }
 
-internal fun waitForFile(directory: Path, deadline: Instant = Instant.MAX, matches: (String) -> Boolean): Path {
+internal fun waitForFile(
+    directory: Path,
+    deadline: Instant = Instant.MAX,
+    timeoutMessage: String,
+    matches: (String) -> Boolean
+): Path {
     findExisting(directory, matches)?.let { return it }
 
     directory.fileSystem.newWatchService().use { ws ->
@@ -57,7 +62,7 @@ internal fun waitForFile(directory: Path, deadline: Instant = Instant.MAX, match
             }
         }
     }
-    throw IllegalStateException("Timed out waiting for file")
+    throw IllegalStateException(timeoutMessage)
 }
 
 internal fun waitForFileDeletion(file: Path, deadline: Instant) {

@@ -29,7 +29,9 @@ class FileProtocolClient internal constructor(
         val deadline = now.plus(timeout)
         waitForRequestConsumption(id, minOf(deadline, now.plus(consumptionTimeout)))
         val target = responsePath(directory, id)
-        waitForFile(directory, deadline) { it == target.fileName.toString() }
+        waitForFile(directory, deadline, "Timed out waiting for response to request ${id.value}") {
+            it == target.fileName.toString()
+        }
         try {
             return mapper.readValue(Files.readString(target), CallToolResult::class.java)
         } catch (e: Exception) {
