@@ -98,8 +98,8 @@ class BridgeInstaller internal constructor(
     private fun swapDirectory(name: String, tmpDir: Path) {
         val target = installDir.resolve(name)
         val source = tmpDir.resolve(name)
-        if (Files.exists(target)) target.toFile().deleteRecursively()
         check(Files.exists(source)) { "Expected directory $name in extracted bridge, but it was missing" }
+        if (Files.exists(target)) target.toFile().deleteRecursively()
         Files.move(source, target)
     }
 }
