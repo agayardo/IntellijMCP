@@ -28,7 +28,7 @@ AI Assistant  ──stdio──>  stdio-mcp-server  ──files──>  IntelliJ
 curl -fsSL https://raw.githubusercontent.com/agayardo/IntellijMCP/main/install.sh | bash
 ```
 
-This downloads the latest release, installs the IntelliJ plugin, and sets up the stdio bridge at `~/.intellij-dev-mcp/bridge/`. Restart IntelliJ after running it.
+This downloads the latest release and installs the IntelliJ plugin. Restart IntelliJ after running it — the stdio bridge is installed automatically on first startup.
 
 ## Configuration
 
@@ -42,7 +42,7 @@ Point your MCP client at the stdio bridge binary. The exact config depends on yo
 {
   "mcpServers": {
     "intellij-dev-mcp": {
-      "command": "~/.intellij-dev-mcp/bridge/bin/stdio-mcp-server",
+      "command": "~/.intellij-dev-mcp/bin/stdio-mcp-server",
       "args": []
     }
   }
@@ -57,7 +57,7 @@ Claude Desktop requires an absolute path (no `~`):
 {
   "mcpServers": {
     "intellij-dev-mcp": {
-      "command": "/Users/you/.intellij-dev-mcp/bridge/bin/stdio-mcp-server"
+      "command": "/Users/you/.intellij-dev-mcp/bin/stdio-mcp-server"
     }
   }
 }
@@ -91,7 +91,7 @@ scope: "package", target: "com.example.service"
 Requires Java 21+ and a working Gradle installation (or use the included wrapper).
 
 ```bash
-./gradlew buildPlugin :stdio-mcp-server:installDist
+./gradlew buildPlugin
 ```
 
-The plugin zip will be at `build/distributions/` and the bridge at `stdio-mcp-server/build/install/stdio-mcp-server/`.
+The plugin zip will be at `build/distributions/`. The stdio bridge is bundled inside the plugin and installed automatically on first IDE startup.

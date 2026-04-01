@@ -21,16 +21,14 @@
 
         <b>Setup</b><br>
         <ol>
-            <li>Build the project: <code>./gradlew buildPlugin :stdio-mcp-server:installDist</code></li>
-            <li>Install the plugin ZIP from <code>build/distributions/</code> into IntelliJ (or run <code>release.sh</code>)</li>
-            <li>Restart IntelliJ and open a project &mdash; the plugin starts automatically</li>
-            <li>Point your MCP client at the stdio bridge. Example <code>mcp.json</code>:</li>
+            <li>Open a project &mdash; the plugin starts automatically and installs the stdio bridge</li>
+            <li>Point your MCP client at the bridge. Example <code>mcp.json</code>:</li>
         </ol>
         <pre>
 {
   "mcpServers": {
     "intellij-dev-mcp": {
-      "command": "&lt;project-path&gt;/stdio-mcp-server/build/install/stdio-mcp-server/bin/stdio-mcp-server",
+      "command": "~/.intellij-dev-mcp/bin/stdio-mcp-server",
       "args": []
     }
   }
