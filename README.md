@@ -42,8 +42,8 @@ Point your MCP client at the stdio bridge binary. The exact config depends on yo
 {
   "mcpServers": {
     "intellij-dev-mcp": {
-      "command": "~/.intellij-dev-mcp/bin/stdio-mcp-server",
-      "args": []
+      "command": "bash",
+      "args": ["-c", "~/.intellij-dev-mcp/bin/stdio-mcp-server"]
     }
   }
 }

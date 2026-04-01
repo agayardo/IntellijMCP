@@ -28,8 +28,8 @@
 {
   "mcpServers": {
     "intellij-dev-mcp": {
-      "command": "~/.intellij-dev-mcp/bin/stdio-mcp-server",
-      "args": []
+      "command": "bash",
+      "args": ["-c", "~/.intellij-dev-mcp/bin/stdio-mcp-server"]
     }
   }
 }

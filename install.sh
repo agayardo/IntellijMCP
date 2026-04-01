@@ -30,7 +30,6 @@ else
   echo "Plugin installed to $plugins_dir"
 fi
 
-bridge_path="$HOME/.intellij-dev-mcp/bin/stdio-mcp-server"
 echo ""
 echo "Done. Restart IntelliJ to activate the plugin."
 echo "The stdio bridge will be installed automatically on first startup."
@@ -40,7 +39,8 @@ echo ""
 echo '  {'
 echo '    "mcpServers": {'
 echo '      "intellij-dev-mcp": {'
-echo "        \"command\": \"$bridge_path\""
+echo '        "command": "bash",'
+echo '        "args": ["-c", "~/.intellij-dev-mcp/bin/stdio-mcp-server"]'
 echo '      }'
 echo '    }'
 echo '  }'
