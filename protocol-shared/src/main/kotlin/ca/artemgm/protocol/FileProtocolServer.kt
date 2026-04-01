@@ -1,6 +1,5 @@
 package ca.artemgm.protocol
 
-import io.modelcontextprotocol.spec.McpSchema.CallToolRequest
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
@@ -21,6 +20,7 @@ class FileProtocolServer internal constructor(
                 isRequestFile(it)
             }
             if (isStale(requestFile)) {
+                mcpLog.info("deleted stale request ${requestFile.fileName}")
                 Files.deleteIfExists(requestFile)
                 continue
             }
@@ -37,7 +37,9 @@ class FileProtocolServer internal constructor(
                 val envelope = mapper.readValue(content, Map::class.java) as Map<String, Any?>
                 val params = envelope["params"]
                     ?: throw IllegalArgumentException("Request JSON missing 'params' field")
-                return ReceivedRequest(id, mapper.convertValue(params, CallToolRequest::class.java))
+                val request = mapper.convertValue(params, io.modelcontextprotocol.spec.McpSchema.CallToolRequest::class.java)
+                mcpLog.info("[${id.value}] received tool=${request.name()}")
+                return ReceivedRequest(id, request)
             } catch (e: Exception) {
                 throw RequestParseException(id, e)
             }

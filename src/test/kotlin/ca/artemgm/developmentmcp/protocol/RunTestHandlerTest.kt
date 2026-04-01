@@ -22,7 +22,7 @@ class RunTestHandlerTest {
                 sourceReader = { null },
                 module = ctx.module
             )
-        }
+        },
     )
 
     @Nested
@@ -156,7 +156,7 @@ class RunTestHandlerTest {
         fun `resolution failure produces error`() {
             val handler = RunTestHandler(
                 contextResolver = failingContextResolver("Could not find 'com.example.Missing' in any open project"),
-                toolFactory = { stubTool(it.module) }
+                toolFactory = { stubTool(it.module) },
             )
 
             val result = handler.handle("class", listOf("com.example.Missing"), null)
@@ -187,7 +187,7 @@ class RunTestHandlerTest {
 
     private fun handlerWithResolver(onResolve: (String, String?) -> Unit) = RunTestHandler(
         contextResolver = stubContextResolver(stubContext, onResolve = onResolve),
-        toolFactory = { stubTool(it.module) }
+        toolFactory = { stubTool(it.module) },
     )
 }
 

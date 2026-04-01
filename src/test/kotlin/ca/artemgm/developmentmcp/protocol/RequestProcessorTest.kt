@@ -58,9 +58,6 @@ class RequestProcessorTest {
         fixture.processor.process(
             CallToolRequest.builder().name(toolName).arguments(arguments).build()
         )
-
-    private fun textOf(result: CallToolResult) =
-        (result.content().first() as TextContent).text()
 }
 
 private fun textToolRegistration(name: String, handler: () -> String) =

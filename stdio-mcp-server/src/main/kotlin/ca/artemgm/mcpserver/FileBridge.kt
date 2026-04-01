@@ -5,10 +5,12 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import java.time.Duration
 
-internal class FileBridge(
+internal class FileBridge internal constructor(
     private val sender: FileProtocolClient,
-    private val responseTimeout: Duration = RESPONSE_TIMEOUT
+    private val responseTimeout: Duration
 ) {
+
+    constructor(sender: FileProtocolClient) : this(sender, RESPONSE_TIMEOUT)
 
     fun call(toolName: String, arguments: Map<String, Any?>): CallToolResult {
         val id = sender.sendRequest(CallToolRequest(toolName, arguments))

@@ -21,19 +21,23 @@ class FileProtocolClient internal constructor(
             "params" to request
         )
         writeAtomically(requestPath(directory, id), mapper.writeValueAsString(envelope))
+        mcpLog.info("[${id.value}] sent tool=${request.name()}")
         return id
     }
 
     fun receiveResponse(id: RequestId, timeout: Duration): CallToolResult {
-        val now = Instant.now()
-        val deadline = now.plus(timeout)
-        waitForRequestConsumption(id, minOf(deadline, now.plus(consumptionTimeout)))
+        val start = Instant.now()
+        val deadline = start.plus(timeout)
+        waitForRequestConsumption(id, minOf(deadline, start.plus(consumptionTimeout)))
         val target = responsePath(directory, id)
         waitForFile(directory, deadline, "Timed out waiting for response to request ${id.value}") {
             it == target.fileName.toString()
         }
         try {
-            return mapper.readValue(Files.readString(target), CallToolResult::class.java)
+            val result = mapper.readValue(Files.readString(target), CallToolResult::class.java)
+            val latency = Duration.between(start, Instant.now())
+            mcpLog.info("[${id.value}] received response isError=${result.isError()} latency=${latency.toMillis()}ms")
+            return result
         } catch (e: Exception) {
             throw IllegalStateException("Failed to parse response for request ${id.value}", e)
         } finally {

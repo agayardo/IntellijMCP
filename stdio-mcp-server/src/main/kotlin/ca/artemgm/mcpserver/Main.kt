@@ -2,6 +2,8 @@ package ca.artemgm.mcpserver
 
 import ca.artemgm.protocol.FileProtocolClient
 import ca.artemgm.protocol.PROTOCOL_DIR
+import ca.artemgm.protocol.ProtocolLogger
+import ca.artemgm.protocol.mcpLog
 import io.modelcontextprotocol.json.McpJsonDefaults
 import io.modelcontextprotocol.server.McpServer
 import io.modelcontextprotocol.server.McpSyncServer
@@ -11,9 +13,13 @@ import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities
 import java.util.concurrent.CountDownLatch
 
 fun main() {
+    mcpLog = ProtocolLogger.forBridge(PROTOCOL_DIR.resolve("logs"))
+    mcpLog.info("bridge starting")
     val tools = SchemaDiscovery.loadTools(PROTOCOL_DIR)
+    mcpLog.info("loaded ${tools.size} tools from schema")
     val fileBridge = FileBridge(FileProtocolClient(PROTOCOL_DIR))
     val server = buildServer(tools, fileBridge)
+    mcpLog.info("bridge ready")
     blockUntilShutdown(server)
 }
 
@@ -36,6 +42,7 @@ private fun blockUntilShutdown(server: McpSyncServer) {
     val shutdownLatch = CountDownLatch(1)
     Runtime.getRuntime().addShutdownHook(Thread {
         try {
+            mcpLog.info("bridge shutting down")
             server.close()
         } finally {
             shutdownLatch.countDown()

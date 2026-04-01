@@ -1,6 +1,8 @@
 package ca.artemgm.developmentmcp.protocol
 
+import ca.artemgm.protocol.mcpLog
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult
+import io.modelcontextprotocol.spec.McpSchema.TextContent
 
 class RunTestHandler internal constructor(
     private val contextResolver: (String, String?) -> ResolvedContext,
@@ -41,11 +43,14 @@ class RunTestHandler internal constructor(
             return errorResult(e.message ?: "Unknown error")
         }
 
-        return try {
+        val result = try {
             toolFactory(ctx).handle(testScope, targets, coverageFor)
         } catch (e: Exception) {
             errorResult("Tool execution failed: ${e.exceptionSummary()}")
         }
+
+        logTestSummary(result, scope, targets)
+        return result
     }
 
     fun registration() = ReflectiveToolAdapter(this, ::handle).toRegistration()
@@ -54,7 +59,23 @@ class RunTestHandler internal constructor(
 internal fun runTestRegistration(projectResolver: ProjectResolver) =
     RunTestHandler(projectResolver).registration()
 
+// Avoids logging full response bodies which can be large.
+internal fun extractLogSummary(text: String): String {
+    val parts = mutableListOf<String>()
+    TEST_COUNTS_PATTERN.find(text)?.let { parts.add(it.value) }
+    COVERAGE_LINE_PATTERN.find(text)?.let { parts.add("coverage=${it.groupValues[1]}") }
+    return parts.joinToString(" ")
+}
+
+private fun logTestSummary(result: CallToolResult, scope: String, targets: List<String>) {
+    val text = (result.content()?.firstOrNull() as? TextContent)?.text() ?: return
+    val summary = extractLogSummary(text)
+    mcpLog.info("run_test scope=$scope targets=${targets.joinToString(",")} isError=${result.isError()} $summary")
+}
+
 private fun resolveTarget(scope: RunTestTool.TestScope, target: String) =
     if (scope == RunTestTool.TestScope.METHOD) target.substringBefore('#') else target
 
 private const val TOOL_NAME = "run_test"
+private val TEST_COUNTS_PATTERN = Regex("Total: \\d+, Passed: \\d+, Failed: \\d+, Ignored: \\d+")
+private val COVERAGE_LINE_PATTERN = Regex("Lines:\\s+\\d+/\\d+\\s+\\(([^)]+)\\)")

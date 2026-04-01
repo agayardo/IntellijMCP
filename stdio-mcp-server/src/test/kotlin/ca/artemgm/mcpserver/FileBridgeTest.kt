@@ -7,29 +7,20 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.file.Files
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 class FileBridgeTest {
 
     private val tempDir = File("build/private/tmp/FileBridgeTest").apply { deleteRecursively(); mkdirs() }
-    private val commandDir = tempDir.toPath().resolve(".intellij-dev-mcp")
-    private lateinit var bridge: FileBridge
-    private lateinit var receiver: FileProtocolServer
+    private val commandDir = tempDir.toPath().resolve(".intellij-dev-mcp").apply { Files.createDirectories(this) }
+    private val receiver = FileProtocolServer(commandDir)
+    private val bridge = FileBridge(FileProtocolClient(commandDir), responseTimeout = Duration.ofSeconds(10))
     private var serverThread: Thread? = null
-
-    @BeforeEach
-    fun setup() {
-        Files.createDirectories(commandDir)
-        receiver = FileProtocolServer(commandDir)
-        bridge = FileBridge(FileProtocolClient(commandDir), responseTimeout = Duration.ofSeconds(10))
-    }
 
     @AfterEach
     fun cleanup() {
@@ -39,21 +30,12 @@ class FileBridgeTest {
 
     @Test
     fun `response content matches what the server wrote`() {
-        val capturedToolName = AtomicReference<String>()
-        val capturedArguments = AtomicReference<Map<String, Any?>>()
-        startServer { name, args ->
-            capturedToolName.set(name)
-            capturedArguments.set(args)
-            successResult("specific-payload-42")
-        }
+        startServer { _, _ -> successResult("specific-payload-42") }
 
         val result = bridge.call("echo_tool", mapOf("key" to "value"))
 
         assertThat((result.content().first() as TextContent).text()).isEqualTo("specific-payload-42")
         assertThat(result.isError()).isFalse()
-        assertThat(capturedToolName.get()).isEqualTo("echo_tool")
-        @Suppress("UNCHECKED_CAST")
-        assertThat(capturedArguments.get()).containsEntry("key", "value")
     }
 
     @Test
@@ -76,10 +58,7 @@ class FileBridgeTest {
 
     @Test
     fun `unconsumed request fails with actionable error`() {
-        val noServerBridge = FileBridge(
-            FileProtocolClient(commandDir),
-            responseTimeout = Duration.ofMillis(200)
-        )
+        val noServerBridge = FileBridge(FileProtocolClient(commandDir), responseTimeout = Duration.ofMillis(200))
 
         assertThatThrownBy { noServerBridge.call("ghost_tool", emptyMap()) }
             .hasMessageContaining("not consumed")

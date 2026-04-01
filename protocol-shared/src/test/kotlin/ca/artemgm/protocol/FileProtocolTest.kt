@@ -5,19 +5,24 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import io.modelcontextprotocol.spec.McpSchema.TextContent
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.file.Files
-import java.nio.file.Path
 import java.nio.file.attribute.FileTime
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.logging.Handler
+import java.util.logging.Level
+import java.util.logging.LogRecord
+import java.util.logging.Logger
 
 class FileProtocolTest {
 
@@ -141,6 +146,49 @@ class FileProtocolTest {
         }
     }
 
+    @Nested
+    inner class ProtocolLogging {
+
+        private val logMessages = CopyOnWriteArrayList<String>()
+        private val savedLog = mcpLog
+
+        init {
+            mcpLog = capturingLogger(logMessages)
+        }
+
+        @AfterEach
+        fun restoreLog() {
+            mcpLog = savedLog
+        }
+
+        @Test
+        fun `client logs request sent with tool name and request ID`() {
+            val id = sender.sendRequest(CallToolRequest("my_tool", emptyMap()))
+
+            assertThat(logMessages).anyMatch { it.contains(id.value) && it.contains("tool=my_tool") && it.contains("sent") }
+        }
+
+        @Test
+        fun `client logs response received with isError and latency`() {
+            val id = sender.sendRequest(CallToolRequest("my_tool", emptyMap()))
+            val received = receiver.receiveRequest()
+            receiver.sendResponse(received.id, buildResponse("ok"))
+
+            sender.receiveResponse(id, Duration.ofSeconds(10))
+
+            assertThat(logMessages).anyMatch { it.contains(id.value) && it.contains("isError=false") && it.contains("latency=") }
+        }
+
+        @Test
+        fun `server logs request received with tool name`() {
+            sender.sendRequest(CallToolRequest("echo_tool", emptyMap()))
+
+            receiver.receiveRequest()
+
+            assertThat(logMessages).anyMatch { it.contains("tool=echo_tool") && it.contains("received") }
+        }
+    }
+
     private fun buildResponse(text: String, isError: Boolean = false) =
         CallToolResult.builder()
             .content(listOf(TextContent(text)))
@@ -158,4 +206,16 @@ class FileProtocolTest {
         Files.list(directory).use { stream ->
             stream.filter { it.fileName.toString().endsWith(REQUEST_SUFFIX) }.count()
         }
+}
+
+private fun capturingLogger(messages: MutableList<String>): Logger {
+    val logger = Logger.getLogger("test.${System.nanoTime()}")
+    logger.level = Level.ALL
+    logger.useParentHandlers = false
+    logger.addHandler(object : Handler() {
+        override fun publish(record: LogRecord) { messages.add(record.message) }
+        override fun flush() {}
+        override fun close() {}
+    })
+    return logger
 }

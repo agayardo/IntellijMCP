@@ -2,6 +2,8 @@ package ca.artemgm.developmentmcp.protocol
 
 import ca.artemgm.protocol.FileProtocolServer
 import ca.artemgm.protocol.PROTOCOL_DIR
+import ca.artemgm.protocol.ProtocolLogger
+import ca.artemgm.protocol.mcpLog
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -22,9 +24,13 @@ class CommandProtocolService : Disposable {
 
         Files.createDirectories(PROTOCOL_DIR)
 
+        mcpLog = ProtocolLogger.forPlugin(PROTOCOL_DIR.resolve("logs"))
+        mcpLog.info("plugin initializing")
+
         actionRegistry.register(runTestRegistration(ProjectResolver()))
 
         Files.writeString(PROTOCOL_DIR.resolve("schema.json"), buildSchemaJson(actionRegistry))
+        mcpLog.info("wrote schema.json with ${actionRegistry.allTools().size} tools")
 
         val loop = RequestLoop(FileProtocolServer(PROTOCOL_DIR), RequestProcessor(actionRegistry))
         requestThread = Thread(loop).apply {
@@ -32,6 +38,7 @@ class CommandProtocolService : Disposable {
             name = "request-loop"
             start()
         }
+        mcpLog.info("plugin ready")
     }
 
     override fun dispose() {
