@@ -23,7 +23,7 @@ class ProjectResolver internal constructor(
     fun resolve(target: String, moduleName: String?): ResolvedContext {
         val projects = openProjects()
         if (moduleName != null) return resolveByModuleName(projects, moduleName)
-        return resolveByTarget(projects, target)
+        return resolveByTarget(projects, target.substringBefore('$'))
     }
 
     private fun resolveByModuleName(projects: Array<Project>, moduleName: String): ResolvedContext {
