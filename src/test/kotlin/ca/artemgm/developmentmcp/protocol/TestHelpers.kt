@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project
 import io.modelcontextprotocol.json.McpJsonDefaults
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import io.modelcontextprotocol.spec.McpSchema.TextContent
+import org.assertj.core.api.Assertions.assertThat
 import java.lang.reflect.Proxy
 
 internal val ECHO_SCHEMA = """{"type":"object","properties":{"msg":{"type":"string"}}}"""
@@ -63,3 +64,11 @@ internal fun stubTool(module: Module) = RunTestTool(
     sourceReader = { null },
     module = module,
 )
+
+@Suppress("UNCHECKED_CAST")
+internal fun requiredParams(schema: Map<String, Any?>) = schema["required"] as List<String>
+
+internal fun assertOptionalStringParam(schema: Map<String, Any?>, name: String) {
+    assertThat(schemaProperty(schema, name)["type"]).isEqualTo("string")
+    assertThat(requiredParams(schema)).doesNotContain(name)
+}

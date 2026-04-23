@@ -28,6 +28,7 @@ class CommandProtocolService : Disposable {
         mcpLog.info("plugin initializing")
 
         actionRegistry.register(runTestRegistration(ProjectResolver()))
+        actionRegistry.register(classLookupRegistration(ProjectResolver()))
 
         Files.writeString(PROTOCOL_DIR.resolve("schema.json"), buildSchemaJson(actionRegistry))
         mcpLog.info("wrote schema.json with ${actionRegistry.allTools().size} tools")

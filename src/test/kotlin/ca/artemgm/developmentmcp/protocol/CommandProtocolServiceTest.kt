@@ -28,6 +28,17 @@ class CommandProtocolServiceTest {
     }
 
     @Test
+    fun `schema JSON contains both run_test and lookup_class tools`() {
+        val registry = ActionRegistry()
+        registry.register(toolRegistration("run_test"))
+        registry.register(toolRegistration("lookup_class"))
+
+        val tools = deserializeSchemaJson(buildSchemaJson(registry))
+
+        assertThat(tools.map { it.name() }).containsExactlyInAnyOrder("run_test", "lookup_class")
+    }
+
+    @Test
     fun `CallToolResult survives serialization round-trip`() {
         val original = CallToolResult.builder()
             .content(listOf(TextContent("hello output")))

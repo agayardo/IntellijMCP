@@ -38,7 +38,7 @@ class RunTestHandlerTest {
         @Test
         fun `scope is required in schema`() {
             assertThat(schemaProperty(schema, "scope")["type"]).isEqualTo("string")
-            assertThat(requiredParams()).contains("scope")
+            assertThat(requiredParams(schema)).contains("scope")
         }
 
         @Test
@@ -47,23 +47,20 @@ class RunTestHandlerTest {
             @Suppress("UNCHECKED_CAST")
             val items = schemaProperty(schema, "targets")["items"] as Map<String, Any?>
             assertThat(items["type"]).isEqualTo("string")
-            assertThat(requiredParams()).contains("targets")
+            assertThat(requiredParams(schema)).contains("targets")
         }
 
         @Test
         fun `moduleName is optional in schema`() {
-            assertThat(schemaProperty(schema, "moduleName")["type"]).isEqualTo("string")
-            assertThat(requiredParams()).doesNotContain("moduleName")
+            assertOptionalStringParam(schema, "moduleName")
         }
 
         @Test
         fun `coverageFor is optional`() {
             assertThat(schemaProperty(schema, "coverageFor")["type"]).isEqualTo("array")
-            assertThat(requiredParams()).doesNotContain("coverageFor")
+            assertThat(requiredParams(schema)).doesNotContain("coverageFor")
         }
 
-        @Suppress("UNCHECKED_CAST")
-        private fun requiredParams() = schema["required"] as List<String>
     }
 
     @Nested

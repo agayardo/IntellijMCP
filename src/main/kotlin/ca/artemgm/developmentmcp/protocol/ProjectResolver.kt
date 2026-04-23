@@ -27,13 +27,8 @@ class ProjectResolver internal constructor(
     }
 
     private fun resolveByModuleName(projects: Array<Project>, moduleName: String): ResolvedContext {
-        for (project in projects) {
-            val module = findModuleByName(project, moduleName)
-            if (module != null) return ResolvedContext(project, module)
-        }
-        throw IllegalArgumentException(
-            "Module '$moduleName' not found. Available modules: ${allModuleNames(projects)}"
-        )
+        val (project, module) = findProjectAndModule(projects, moduleName)
+        return ResolvedContext(project, module)
     }
 
     private fun resolveByTarget(projects: Array<Project>, target: String): ResolvedContext {
@@ -64,11 +59,32 @@ class ProjectResolver internal constructor(
         return matches.single()
     }
 
+    fun resolveForLookup(moduleName: String?): ResolvedProject {
+        val projects = openProjects()
+        if (moduleName == null) {
+            require(projects.isNotEmpty()) { "No open projects" }
+            return ResolvedProject(projects.first())
+        }
+        return ResolvedProject(findProjectAndModule(projects, moduleName).first)
+    }
+
+    private fun findProjectAndModule(projects: Array<Project>, moduleName: String): Pair<Project, Module> {
+        for (project in projects) {
+            val module = findModuleByName(project, moduleName)
+            if (module != null) return project to module
+        }
+        throw IllegalArgumentException(
+            "Module '$moduleName' not found. Available modules: ${allModuleNames(projects)}"
+        )
+    }
+
     private fun allModuleNames(projects: Array<Project>) = projects
         .flatMap { listModuleNames(it) }
         .sorted()
         .joinToString()
 }
+
+data class ResolvedProject(val project: Project)
 
 data class ResolvedContext(val project: Project, val module: Module)
 
