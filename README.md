@@ -1,6 +1,6 @@
 # IntelliJ Dev MCP
 
-An IntelliJ IDEA plugin that exposes MCP (Model Context Protocol) tools, letting AI assistants run JUnit tests with coverage directly inside the IDE.
+An IntelliJ IDEA plugin that exposes MCP (Model Context Protocol) tools, letting AI assistants run JUnit tests with coverage and look up class APIs directly inside the IDE.
 
 ## How it works
 
@@ -12,9 +12,15 @@ AI Assistant  ──stdio──>  stdio-mcp-server  ──files──>  IntelliJ
 
 ## Available tools
 
-| Tool | Description |
-|------|-------------|
-| `run_test` | Runs JUnit tests at package, class, or method scope. Returns structured test results with line and branch coverage. Supports both Gradle and native JUnit run configurations. |
+### `run_test`
+
+Runs JUnit tests inside the IDE at package, class, or method scope. Returns structured pass/fail results with line and branch coverage. Supports both Gradle and native JUnit run configurations. Module is auto-detected when not specified.
+
+### `lookup_class`
+
+Searches for Java/Kotlin classes by name — fully qualified, simple name, or wildcard patterns like `*Handler` or `com.example.*Service`. Returns the public interface: methods with full signatures, fields, implemented interfaces, superclass, and the source file path or JAR location.
+
+Searches across all open IntelliJ projects simultaneously. When the same class appears in every project (e.g. a JDK class), results are merged seamlessly. When results differ across projects, each gets its own labeled section.
 
 ## Requirements
 
@@ -65,26 +71,7 @@ Claude Desktop requires an absolute path (no `~`):
 
 ### Verifying the connection
 
-Once IntelliJ is running with a project open and your MCP client is configured:
-
-1. The plugin starts automatically when IntelliJ opens a project
-2. Call `run_test` with a test class to run tests with coverage
-
-### `run_test` parameters
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `scope` | yes | One of: `package`, `class`, `method` |
-| `target` | yes | Package name, fully qualified class name, or `class#method` |
-| `moduleName` | no | IntelliJ module name. Auto-detected if omitted. |
-
-Examples:
-
-```
-scope: "class",   target: "com.example.MyServiceTest"
-scope: "method",  target: "com.example.MyServiceTest#testCreate"
-scope: "package", target: "com.example.service"
-```
+Once IntelliJ is running with a project open and your MCP client is configured, the plugin starts automatically. Ask your agent to try running a test or looking up a class to confirm everything is wired up.
 
 ## Building from source
 
