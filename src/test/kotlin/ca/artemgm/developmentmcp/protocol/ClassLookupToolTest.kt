@@ -151,14 +151,6 @@ class ClassLookupToolTest {
     }
 }
 
-private fun aClassInfo(fqn: String) = ClassInfo(
-    fqn = fqn,
-    methods = emptyList(),
-    fields = emptyList(),
-    interfaces = emptyList(),
-    superclass = null,
-)
-
 private fun toolReturningFromShortName(shortName: String, classes: List<ClassInfo>) =
     ClassLookupTool(
         findClassesByFqn = { emptyList() },

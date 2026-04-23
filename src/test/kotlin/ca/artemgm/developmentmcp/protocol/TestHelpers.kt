@@ -72,3 +72,12 @@ internal fun assertOptionalStringParam(schema: Map<String, Any?>, name: String) 
     assertThat(schemaProperty(schema, name)["type"]).isEqualTo("string")
     assertThat(requiredParams(schema)).doesNotContain(name)
 }
+
+internal fun aClassInfo(fqn: String) = ClassInfo(
+    fqn = fqn,
+    methods = emptyList(),
+    fields = emptyList(),
+    interfaces = emptyList(),
+    superclass = null,
+    sourceFile = null,
+)

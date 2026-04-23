@@ -12,7 +12,8 @@ data class ClassInfo(
     val methods: List<MethodInfo>,
     val fields: List<FieldInfo>,
     val interfaces: List<String>,
-    val superclass: String?
+    val superclass: String?,
+    val sourceFile: String? = null
 )
 
 data class MethodInfo(
@@ -81,6 +82,7 @@ private fun formatHeader(result: ClassLookupResult): String {
 
 private fun formatClassBlock(info: ClassInfo) = buildString {
     appendLine("=== ${info.fqn} ===")
+    if (info.sourceFile != null) appendLine("Source: ${info.sourceFile}")
     appendLine("Superclass: ${info.superclass ?: "(none)"}")
     appendLine("Interfaces: ${formatInterfaces(info.interfaces)}")
     appendLine()

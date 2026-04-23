@@ -212,11 +212,3 @@ class ClassLookupHandlerTest {
         classLookup = lookup
     )
 }
-
-private fun aClassInfo(fqn: String) = ClassInfo(
-    fqn = fqn,
-    methods = emptyList(),
-    fields = emptyList(),
-    interfaces = emptyList(),
-    superclass = null
-)

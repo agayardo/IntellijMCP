@@ -84,8 +84,20 @@ private fun extractClassInfo(psiClass: PsiClass) = ClassInfo(
     interfaces = psiClass.interfaces.mapNotNull { it.qualifiedName },
     superclass = psiClass.superClass
         ?.qualifiedName
-        ?.takeUnless { it == "java.lang.Object" }
+        ?.takeUnless { it == "java.lang.Object" },
+    sourceFile = resolveSourceFile(psiClass)
 )
+
+private fun resolveSourceFile(psiClass: PsiClass): String? {
+    val virtualFile = psiClass.containingFile?.virtualFile ?: return null
+    val path = virtualFile.path
+    // jar:// URLs look like "/path/to/lib.jar!/com/example/Foo.class"
+    val jarSeparator = path.indexOf("!/")
+    if (jarSeparator >= 0) return path.substring(0, jarSeparator)
+    val project = psiClass.project
+    val basePath = project.basePath ?: return path
+    return path.removePrefix("$basePath/")
+}
 
 private fun globToRegex(pattern: String): Regex {
     val escaped = buildString {

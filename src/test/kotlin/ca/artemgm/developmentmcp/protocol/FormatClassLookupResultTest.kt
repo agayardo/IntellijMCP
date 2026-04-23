@@ -217,14 +217,49 @@ class FormatClassLookupResultTest {
             assertThat(output).doesNotContain("in module")
         }
     }
+
+    @Nested
+    inner class SourceFileDisplay {
+
+        @Test
+        fun `source file path appears after FQN header`() {
+            val output = formatClassLookupResult(
+                listOf(
+                    ClassLookupResult(
+                        classes = listOf(aMinimalClass("com.example.Foo", sourceFile = "src/main/java/com/example/Foo.java")),
+                        totalMatches = 1,
+                        truncated = false
+                    )
+                )
+            )
+
+            assertThat(output).contains("Source: src/main/java/com/example/Foo.java")
+        }
+
+        @Test
+        fun `source file line omitted when null`() {
+            val output = formatClassLookupResult(
+                listOf(
+                    ClassLookupResult(
+                        classes = listOf(aMinimalClass("com.example.Foo")),
+                        totalMatches = 1,
+                        truncated = false
+                    )
+                )
+            )
+
+            assertThat(output).doesNotContain("Source:")
+        }
+    }
 }
 
-private fun aMinimalClass(fqn: String) = ClassInfo(
+private fun aMinimalClass(fqn: String, sourceFile: String? = null) = ClassInfo(
     fqn = fqn,
     methods = emptyList(),
     fields = emptyList(),
     interfaces = emptyList(),
-    superclass = null
+    superclass = null,
+    sourceFile = sourceFile,
 )
 
 private fun resultForModule(fqn: String, moduleName: String) = ClassLookupResult(
