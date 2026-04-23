@@ -59,13 +59,11 @@ class ProjectResolver internal constructor(
         return matches.single()
     }
 
-    fun resolveForLookup(moduleName: String?): ResolvedProject {
+    fun resolveForLookup(moduleName: String?): List<ResolvedProject> {
         val projects = openProjects()
-        if (moduleName == null) {
-            require(projects.isNotEmpty()) { "No open projects" }
-            return ResolvedProject(projects.first())
-        }
-        return ResolvedProject(findProjectAndModule(projects, moduleName).first)
+        if (moduleName != null) return listOf(ResolvedProject(findProjectAndModule(projects, moduleName).first))
+        require(projects.isNotEmpty()) { "No open projects" }
+        return projects.map { ResolvedProject(it) }
     }
 
     private fun findProjectAndModule(projects: Array<Project>, moduleName: String): Pair<Project, Module> {

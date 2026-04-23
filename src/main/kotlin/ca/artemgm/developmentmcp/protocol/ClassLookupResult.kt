@@ -3,7 +3,8 @@ package ca.artemgm.developmentmcp.protocol
 data class ClassLookupResult(
     val classes: List<ClassInfo>,
     val totalMatches: Int,
-    val truncated: Boolean
+    val truncated: Boolean,
+    val moduleName: String? = null
 )
 
 data class ClassInfo(
@@ -32,20 +33,50 @@ data class FieldInfo(
 
 internal const val DEFAULT_MAX_RESULTS = 20
 
-internal fun formatClassLookupResult(result: ClassLookupResult) = buildString {
-    appendLine(formatHeader(result))
-    result.classes.forEachIndexed { index, classInfo ->
-        if (index > 0) appendLine()
-        appendLine(formatClassBlock(classInfo))
+internal fun formatClassLookupResult(results: List<ClassLookupResult>) = buildString {
+    val nonEmpty = results.filter { it.classes.isNotEmpty() }
+    if (allResultsFromSameClasses(nonEmpty)) {
+        val merged = mergeResults(nonEmpty)
+        appendLine(formatHeader(merged))
+        merged.classes.forEachIndexed { index, classInfo ->
+            if (index > 0) appendLine()
+            appendLine(formatClassBlock(classInfo))
+        }
+    } else {
+        for (result in nonEmpty) {
+            if (isNotEmpty()) appendLine()
+            appendLine(formatHeader(result))
+            result.classes.forEachIndexed { index, classInfo ->
+                if (index > 0) appendLine()
+                appendLine(formatClassBlock(classInfo))
+            }
+        }
     }
+}
+
+private fun allResultsFromSameClasses(results: List<ClassLookupResult>): Boolean {
+    if (results.size <= 1) return true
+    val fqns = results.first().classes.map { it.fqn }.toSet()
+    return results.all { it.classes.map { c -> c.fqn }.toSet() == fqns }
+}
+
+private fun mergeResults(results: List<ClassLookupResult>): ClassLookupResult {
+    if (results.size == 1) return results.single().copy(moduleName = null)
+    return ClassLookupResult(
+        results.first().classes,
+        totalMatches = results.maxOf { it.totalMatches },
+        truncated = results.any { it.truncated },
+        moduleName = null
+    )
 }
 
 private fun formatHeader(result: ClassLookupResult): String {
     val count = result.classes.size
+    val moduleLabel = result.moduleName?.let { " in module '$it'" } ?: ""
     return if (result.truncated)
-        "Found $count of ${result.totalMatches} matching classes (results truncated):"
+        "Found $count of ${result.totalMatches} matching classes$moduleLabel (results truncated):"
     else
-        "Found $count matching classes:"
+        "Found $count matching classes$moduleLabel:"
 }
 
 private fun formatClassBlock(info: ClassInfo) = buildString {

@@ -156,7 +156,7 @@ private fun aClassInfo(fqn: String) = ClassInfo(
     methods = emptyList(),
     fields = emptyList(),
     interfaces = emptyList(),
-    superclass = null
+    superclass = null,
 )
 
 private fun toolReturningFromShortName(shortName: String, classes: List<ClassInfo>) =

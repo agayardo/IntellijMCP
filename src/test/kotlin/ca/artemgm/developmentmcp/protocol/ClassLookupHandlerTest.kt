@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Test
 
 class ClassLookupHandlerTest {
 
-    private val project = stubProject()
-    private val resolved = ResolvedProject(project)
+    private val projectA = stubProject("ProjectA")
+    private val projectB = stubProject("ProjectB")
 
     private val sampleResult = ClassLookupResult(
         classes = listOf(
@@ -29,7 +29,7 @@ class ClassLookupHandlerTest {
     private val handler = ClassLookupHandler(
         contextResolver = { moduleName ->
             capturedModuleName = moduleName
-            resolved
+            listOf(ResolvedProject(projectA))
         },
         classLookup = { _, _ -> sampleResult }
     )
@@ -148,10 +148,75 @@ class ClassLookupHandlerTest {
         }
     }
 
+    @Nested
+    inner class MultiProjectSearch {
+
+        @Test
+        fun `searches all resolved projects and merges results`() {
+            val capturedProjects = mutableListOf<Project>()
+            val handler = multiProjectHandler { project, _ ->
+                capturedProjects += project
+                resultWithClassPerProject(project)
+            }
+
+            val result = handler.handle("*Class", null)
+
+            assertThat(capturedProjects).containsExactly(projectA, projectB)
+            assertThat(textOf(result))
+                .contains("com.example.ProjectAClass")
+                .contains("com.example.ProjectBClass")
+        }
+
+        @Test
+        fun `output includes module name per project section`() {
+            val handler = multiProjectHandler { project, _ -> resultWithClassPerProject(project) }
+
+            val result = handler.handle("*Class", null)
+
+            assertThat(textOf(result)).contains("ProjectA", "ProjectB")
+        }
+
+        private fun multiProjectHandler(
+            classLookup: (Project, String) -> ClassLookupResult
+        ) = ClassLookupHandler(
+            contextResolver = { listOf(ResolvedProject(projectA), ResolvedProject(projectB)) },
+            classLookup = classLookup
+        )
+
+        private fun resultWithClassPerProject(project: Project) = ClassLookupResult(
+            classes = listOf(aClassInfo("com.example.${project.name}Class")),
+            totalMatches = 1,
+            truncated = false
+        )
+
+        @Test
+        fun `no-match across all projects produces error`() {
+            val handler = ClassLookupHandler(
+                contextResolver = { listOf(ResolvedProject(projectA), ResolvedProject(projectB)) },
+                classLookup = { _, _ ->
+                    ClassLookupResult(classes = emptyList(), totalMatches = 0, truncated = false)
+                }
+            )
+
+            val result = handler.handle("com.missing.Clazz", null)
+
+            assertThat(result.isError).isTrue()
+            assertThat(textOf(result)).contains("com.missing.Clazz")
+        }
+    }
+
     private fun handlerWithLookup(
         lookup: (Project, String) -> ClassLookupResult
     ) = ClassLookupHandler(
-        contextResolver = { resolved },
+        contextResolver = { listOf(ResolvedProject(projectA)) },
         classLookup = lookup
     )
 }
+
+private fun aClassInfo(fqn: String) = ClassInfo(
+    fqn = fqn,
+    methods = emptyList(),
+    fields = emptyList(),
+    interfaces = emptyList(),
+    superclass = null
+)

@@ -5,15 +5,13 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult
 import io.modelcontextprotocol.spec.McpSchema.TextContent
 
 class ClassLookupHandler internal constructor(
-    private val contextResolver: (String?) -> ResolvedProject,
+    private val contextResolver: (String?) -> List<ResolvedProject>,
     private val classLookup: (Project, String) -> ClassLookupResult
 ) {
 
     constructor(projectResolver: ProjectResolver) : this(
         contextResolver = { moduleName -> projectResolver.resolveForLookup(moduleName) },
-        classLookup = { project, pattern ->
-            ClassLookupTool(project).lookup(pattern)
-        }
+        classLookup = { project, pattern -> ClassLookupTool(project).lookup(pattern) }
     )
 
     @ToolDefinition(
@@ -28,22 +26,25 @@ class ClassLookupHandler internal constructor(
     ): CallToolResult {
         if (className.isBlank()) return errorResult("className must not be blank")
 
-        val resolved = try {
+        val resolvedProjects = try {
             contextResolver(moduleName)
         } catch (e: IllegalArgumentException) {
             return errorResult(e.message ?: "Unknown error")
         }
 
-        val result = try {
-            classLookup(resolved.project, className)
-        } catch (e: Exception) {
-            return errorResult("Tool execution failed: ${e.exceptionSummary()}")
+        val results = resolvedProjects.map { resolved ->
+            try {
+                classLookup(resolved.project, className).copy(moduleName = resolved.project.name)
+            } catch (e: Exception) {
+                return errorResult("Tool execution failed: ${e.exceptionSummary()}")
+            }
         }
 
-        if (result.classes.isEmpty()) return errorResult("No classes found matching '$className'")
+        val totalClasses = results.sumOf { it.classes.size }
+        if (totalClasses == 0) return errorResult("No classes found matching '$className'")
 
         return CallToolResult.builder()
-            .addContent(TextContent(formatClassLookupResult(result)))
+            .addContent(TextContent(formatClassLookupResult(results)))
             .build()
     }
 
