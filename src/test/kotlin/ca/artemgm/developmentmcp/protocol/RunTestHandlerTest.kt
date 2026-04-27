@@ -20,7 +20,8 @@ class RunTestHandlerTest {
                 filePathResolver = { null },
                 classesInFile = { emptySet() },
                 sourceReader = { null },
-                module = ctx.module
+                module = ctx.module,
+                waitForSmartMode = {},
             )
         },
     )

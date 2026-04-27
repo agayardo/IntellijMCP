@@ -63,6 +63,7 @@ internal fun stubTool(module: Module) = RunTestTool(
     classesInFile = { emptySet() },
     sourceReader = { null },
     module = module,
+    waitForSmartMode = {},
 )
 
 @Suppress("UNCHECKED_CAST")

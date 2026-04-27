@@ -49,7 +49,8 @@ class RunTestTool internal constructor(
     private val filePathResolver: (String) -> String?,
     private val classesInFile: (String) -> Set<String>,
     private val sourceReader: (String) -> List<String>?,
-    private val module: Module
+    private val module: Module,
+    private val waitForSmartMode: () -> Unit
 ) {
 
     constructor(project: Project, module: Module) : this(
@@ -64,7 +65,8 @@ class RunTestTool internal constructor(
         filePathResolver = { className -> resolveFilePath(project, className) },
         classesInFile = { filePath -> resolveClassesInFile(project, filePath) },
         sourceReader = { filePath -> readSourceLines(project, filePath) },
-        module = module
+        module = module,
+        waitForSmartMode = { DumbService.getInstance(project).waitForSmartMode() }
     )
 
     fun handle(
@@ -72,6 +74,7 @@ class RunTestTool internal constructor(
         targets: List<String>,
         coverageFor: List<String>? = null
     ): CallToolResult {
+        waitForSmartMode()
         return try {
             val configName = configCreator(ConfigParams(scope, targets, module))
             val packageNames = targets.map { resolvePackageName(scope, it) }.toSet()

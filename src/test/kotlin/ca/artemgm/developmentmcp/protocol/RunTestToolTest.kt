@@ -10,11 +10,13 @@ class RunTestToolTest {
     private var capturedParams: RunTestTool.ConfigParams? = null
     private var launcherConfigName: String? = null
     private var launcherPackageNames: Set<String>? = null
+    private var callOrder = mutableListOf<String>()
 
     private val stubModule = stubModule()
     private val tool = RunTestTool(
-        configCreator = { params -> capturedParams = params; "RunTest-stub" },
+        configCreator = { params -> callOrder += "configCreator"; capturedParams = params; "RunTest-stub" },
         executionLauncher = { name, pkgs ->
+            callOrder += "executionLauncher"
             launcherConfigName = name
             launcherPackageNames = pkgs
             ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null)
@@ -22,7 +24,8 @@ class RunTestToolTest {
         filePathResolver = { null },
         classesInFile = { emptySet() },
         sourceReader = { null },
-        module = stubModule
+        module = stubModule,
+        waitForSmartMode = { callOrder += "waitForSmartMode" },
     )
 
     private fun stubTool(
@@ -38,7 +41,8 @@ class RunTestToolTest {
         filePathResolver = filePathResolver,
         classesInFile = classesInFile,
         sourceReader = sourceReader,
-        module = stubModule
+        module = stubModule,
+        waitForSmartMode = {},
     )
 
     @Nested
@@ -123,6 +127,17 @@ class RunTestToolTest {
             val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
 
             assertThat(result.isError).isFalse()
+        }
+    }
+
+    @Nested
+    inner class SmartModeOrdering {
+
+        @Test
+        fun `waitForSmartMode called before config creation and execution`() {
+            tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+
+            assertThat(callOrder.first()).isEqualTo("waitForSmartMode")
         }
     }
 
