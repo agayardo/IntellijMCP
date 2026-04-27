@@ -42,12 +42,13 @@ class ClassLookupTool internal constructor(
     fun lookup(pattern: String): ClassLookupResult {
         waitForSmartMode()
 
-        val allMatches = when {
-            '*' in pattern -> lookupByWildcard(pattern.replace('$', '.'))
-            '.' in pattern -> findClassesByFqn(pattern.replace('$', '.'))
-            '$' in pattern -> findClassesByShortName(pattern.substringAfterLast('$'))
-            else -> findClassesByShortName(pattern)
-        }
+        // Extraneous matches cause little damage, but missing the intended class makes the tool useless.
+        val normalized = pattern.replace('$', '.')
+        val allMatches = buildList {
+            if ('*' in normalized) addAll(lookupByWildcard(normalized))
+            if ('.' in normalized && '*' !in normalized) addAll(findClassesByFqn(normalized))
+            addAll(findClassesByShortName(normalized.substringAfterLast('.')))
+        }.distinctBy { it.fqn }
 
         val truncated = allMatches.size > DEFAULT_MAX_RESULTS
         val classes = if (truncated) allMatches.take(DEFAULT_MAX_RESULTS) else allMatches

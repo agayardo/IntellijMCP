@@ -46,15 +46,15 @@ class ClassLookupToolTest {
     inner class FqnLookup {
 
         @Test
-        fun `FQN pattern dispatches to findClassesByFqn`() {
+        fun `FQN pattern tries both FQN and short name lookup`() {
             tool.lookup("java.util.ArrayList")
 
             assertThat(fqnQueries).containsExactly("java.util.ArrayList")
-            assertThat(shortNameQueries).isEmpty()
+            assertThat(shortNameQueries).containsExactly("ArrayList")
         }
 
         @Test
-        fun `FQN lookup includes matching class in result`() {
+        fun `FQN lookup includes matching class without duplicates`() {
             val result = tool.lookup("java.util.ArrayList")
 
             assertThat(result.classes).containsExactly(arrayListInfo)
@@ -79,7 +79,7 @@ class ClassLookupToolTest {
     inner class SimpleNameLookup {
 
         @Test
-        fun `simple name dispatches to findClassesByShortName`() {
+        fun `simple name dispatches to findClassesByShortName only`() {
             tool.lookup("ArrayList")
 
             assertThat(shortNameQueries).containsExactly("ArrayList")
@@ -94,11 +94,32 @@ class ClassLookupToolTest {
         }
 
         @Test
-        fun `dollar-sign inner class without package uses short name of outer class`() {
+        fun `dollar-sign inner class without package tries FQN and short name`() {
             tool.lookup("HashMap\$Entry")
 
+            assertThat(fqnQueries).containsExactly("HashMap.Entry")
             assertThat(shortNameQueries).containsExactly("Entry")
-            assertThat(fqnQueries).isEmpty()
+        }
+    }
+
+    @Nested
+    inner class InnerClassByDotNotation {
+
+        @Test
+        fun `Outer dot Inner falls back to short name when FQN misses`() {
+            val innerInfo = aClassInfo("com.example.MonotonicClock.TestClock")
+            val fqnMissingTool = ClassLookupTool(
+                findClassesByFqn = { emptyList() },
+                findClassesByShortName = { name ->
+                    if (name == "TestClock") listOf(innerInfo) else emptyList()
+                },
+                getAllClassNames = { emptyArray() },
+                waitForSmartMode = {}
+            )
+
+            val result = fqnMissingTool.lookup("MonotonicClock.TestClock")
+
+            assertThat(result.classes).containsExactly(innerInfo)
         }
     }
 
