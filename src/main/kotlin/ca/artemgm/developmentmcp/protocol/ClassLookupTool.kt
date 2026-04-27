@@ -43,8 +43,9 @@ class ClassLookupTool internal constructor(
         waitForSmartMode()
 
         val allMatches = when {
-            '*' in pattern -> lookupByWildcard(pattern)
-            '.' in pattern -> findClassesByFqn(pattern)
+            '*' in pattern -> lookupByWildcard(pattern.replace('$', '.'))
+            '.' in pattern -> findClassesByFqn(pattern.replace('$', '.'))
+            '$' in pattern -> findClassesByShortName(pattern.substringAfterLast('$'))
             else -> findClassesByShortName(pattern)
         }
 

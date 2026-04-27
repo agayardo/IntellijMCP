@@ -59,6 +59,20 @@ class ClassLookupToolTest {
 
             assertThat(result.classes).containsExactly(arrayListInfo)
         }
+
+        @Test
+        fun `dollar-sign inner class notation normalizes to dot-separated FQN`() {
+            tool.lookup("java.util.HashMap\$Entry")
+
+            assertThat(fqnQueries).containsExactly("java.util.HashMap.Entry")
+        }
+
+        @Test
+        fun `deeply nested dollar-sign notation normalizes all separators`() {
+            tool.lookup("com.example.Outer\$Mid\$Inner")
+
+            assertThat(fqnQueries).containsExactly("com.example.Outer.Mid.Inner")
+        }
     }
 
     @Nested
@@ -77,6 +91,14 @@ class ClassLookupToolTest {
             val result = tool.lookup("ArrayList")
 
             assertThat(result.classes).containsExactly(arrayListInfo)
+        }
+
+        @Test
+        fun `dollar-sign inner class without package uses short name of outer class`() {
+            tool.lookup("HashMap\$Entry")
+
+            assertThat(shortNameQueries).containsExactly("Entry")
+            assertThat(fqnQueries).isEmpty()
         }
     }
 
