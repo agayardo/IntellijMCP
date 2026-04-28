@@ -19,7 +19,9 @@ class RunTestHandler internal constructor(
         @Param(description = "Test scope: package, class, or method") scope: String,
         @Param(description = "Targets: list of package names, class FQNs, or class#method strings") targets: List<String>,
         @Param(description = "IntelliJ module name (optional)") moduleName: String?,
-        @Param(description = "Glob patterns for source file paths (relative to project root, e.g. **/MyFile.kt) to report uncovered line numbers for (optional)") coverageFor: List<String>? = null
+        @Param(description = "Glob patterns for source file paths (relative to project root, e.g. **/MyFile.kt) to report uncovered line numbers for (optional)") coverageFor: List<String>? = null,
+        @Param(description = "Number of trailing test output lines (stdout+stderr interleaved) to include in the response (optional, default 100, 0 to suppress)") outputLines: Int? = null,
+        @Param(description = "Regex to filter test output lines — only lines containing a match are included (optional, default 'TEST DEBUG:')") outputFilter: String? = null
     ): CallToolResult {
         if (targets.isEmpty()) return errorResult("Targets list must not be empty")
 
@@ -44,7 +46,16 @@ class RunTestHandler internal constructor(
         }
 
         val result = try {
-            toolFactory(ctx).handle(testScope, targets, coverageFor)
+            val outputFilterRegex = try {
+                if (outputFilter != null) Regex(outputFilter) else RunTestTool.DEFAULT_OUTPUT_FILTER
+            } catch (e: Exception) {
+                return errorResult("Invalid outputFilter regex: ${e.message}")
+            }
+            toolFactory(ctx).handle(
+                testScope, targets, coverageFor,
+                outputLines = outputLines ?: RunTestTool.DEFAULT_OUTPUT_LINES,
+                outputFilter = outputFilterRegex
+            )
         } catch (e: Exception) {
             errorResult("Tool execution failed: ${e.exceptionSummary()}")
         }

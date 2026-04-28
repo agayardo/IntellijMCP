@@ -72,7 +72,9 @@ class RunTestTool internal constructor(
     fun handle(
         scope: TestScope,
         targets: List<String>,
-        coverageFor: List<String>? = null
+        coverageFor: List<String>? = null,
+        outputLines: Int,
+        outputFilter: Regex
     ): CallToolResult {
         waitForSmartMode()
         return try {
@@ -100,6 +102,12 @@ class RunTestTool internal constructor(
                         append(formatCoverage(result.coverage, fileCoverages))
                     }
                 }
+                val tailOutput = filterAndTail(result.consoleOutput, outputFilter, outputLines)
+                if (tailOutput.isNotEmpty()) {
+                    val lineCount = tailOutput.lines().size
+                    append("\n\nTest output (last $lineCount lines matching /${outputFilter.pattern}/):\n")
+                    append(tailOutput)
+                }
             }
             CallToolResult.builder()
                 .addContent(TextContent(response))
@@ -121,12 +129,18 @@ class RunTestTool internal constructor(
     enum class TestScope {
         PACKAGE, CLASS, METHOD
     }
+
+    companion object {
+        const val DEFAULT_OUTPUT_LINES = 100
+        val DEFAULT_OUTPUT_FILTER = Regex("TEST DEBUG:")
+    }
 }
 
 data class ExecutionResult(
     val testOutput: String,
     val failed: Boolean,
-    val coverage: PackageCoverage?
+    val coverage: PackageCoverage?,
+    val consoleOutput: String
 )
 
 data class PackageCoverage(
@@ -158,13 +172,14 @@ data class FileCoverage(
     val uncoveredLineNumbers: List<Int>
 )
 
-internal data class TestRunSummary(val output: String, val failed: Boolean)
+internal data class TestRunSummary(val output: String, val failed: Boolean, val consoleOutput: String)
 
 internal fun extractTestResults(console: Any?, configName: String, exitCode: Int, processOutput: String): TestRunSummary {
-    if (console == null) return TestRunSummary(fallbackMessage(configName, exitCode, processOutput), exitCode != 0)
+    if (console == null) return TestRunSummary(fallbackMessage(configName, exitCode, processOutput), exitCode != 0, "")
     val root = tryGetTestRoot(console)
-        ?: return TestRunSummary(fallbackMessage(configName, exitCode, processOutput), exitCode != 0)
-    return formatTestResults(configName, root, exitCode)
+        ?: return TestRunSummary(fallbackMessage(configName, exitCode, processOutput), exitCode != 0, "")
+    val consoleOutput = collectTestOutput(root)
+    return formatTestResults(configName, root, exitCode, consoleOutput)
 }
 
 private fun resolvePackageName(scope: RunTestTool.TestScope, target: String): String = when (scope) {
@@ -242,7 +257,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
             if (env.runProfile.name != configName) return
             try {
                 val message = buildNotStartedMessage(configName, cause, buildErrors.errors())
-                testResultFuture.complete(TestRunSummary(message, true))
+                testResultFuture.complete(TestRunSummary(message, true, ""))
                 coverageFuture.complete(null)
             } finally {
                 connection.disconnect()
@@ -268,7 +283,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
                         testResultFuture.complete(extractTestResults(console, configName, event.exitCode, processOutput.toString()))
                     } catch (e: Exception) {
                         val fallback = fallbackMessage(configName, event.exitCode, processOutput.toString())
-                        testResultFuture.complete(TestRunSummary(fallback, event.exitCode != 0))
+                        testResultFuture.complete(TestRunSummary(fallback, event.exitCode != 0, ""))
                     } finally {
                         connection.disconnect()
                     }
@@ -303,7 +318,7 @@ private fun launchWithCoverage(project: Project, configName: String, packageName
         null
     }
 
-    return ExecutionResult(testSummary.output, testSummary.failed, coverage)
+    return ExecutionResult(testSummary.output, testSummary.failed, coverage, testSummary.consoleOutput)
 }
 
 internal fun extractPackageCoverage(projectData: ProjectData, packageNames: Set<String>): PackageCoverage {
@@ -392,7 +407,31 @@ private fun tryUnwrapConsole(console: Any): Any? = try {
     null
 }
 
-private fun formatTestResults(configName: String, root: AbstractTestProxy, exitCode: Int): TestRunSummary {
+internal fun collectTestOutput(root: AbstractTestProxy): String {
+    val sb = StringBuilder()
+    val printer = object : com.intellij.execution.testframework.Printer {
+        override fun print(text: String, contentType: com.intellij.execution.ui.ConsoleViewContentType) {
+            sb.append(text)
+        }
+        override fun printHyperlink(text: String, info: com.intellij.execution.filters.HyperlinkInfo?) {}
+        override fun onNewAvailable(printable: com.intellij.execution.testframework.Printable) {}
+        override fun mark() {}
+        override fun printWithAnsiColoring(text: String, processOutputType: com.intellij.openapi.util.Key<*>) {
+            sb.append(text)
+        }
+        override fun printExpectedActualHeader(expected: String, actual: String) {}
+    }
+    try {
+        for (test in root.allTests.filter { it.isLeaf && it !== root }) {
+            test.printOn(printer)
+        }
+    } catch (_: Exception) {
+        return ""
+    }
+    return sb.toString()
+}
+
+private fun formatTestResults(configName: String, root: AbstractTestProxy, exitCode: Int, consoleOutput: String): TestRunSummary {
     val leafTests = root.allTests.filter { it.isLeaf && it !== root }
     val passed = leafTests.count { it.isPassed }
     val failed = leafTests.count { it.isDefect }
@@ -431,7 +470,7 @@ private fun formatTestResults(configName: String, root: AbstractTestProxy, exitC
         }
     }
 
-    return TestRunSummary(sb.toString().trimEnd(), runFailed)
+    return TestRunSummary(sb.toString().trimEnd(), runFailed, consoleOutput)
 }
 
 internal fun formatUncoveredLines(
@@ -808,3 +847,12 @@ private val FRAMEWORK_PACKAGE_PREFIXES = listOf(
     "org.gradle.",
     "worker.org.gradle."
 )
+
+internal fun filterAndTail(text: String, filter: Regex, maxLines: Int): String {
+    if (maxLines <= 0 || text.isEmpty()) return ""
+    val lines = text.lines()
+    val trimmed = if (lines.lastOrNull()?.isEmpty() == true) lines.dropLast(1) else lines
+    val matching = trimmed.filter { filter.containsMatchIn(it) }
+    if (matching.isEmpty()) return ""
+    return matching.takeLast(maxLines).joinToString("\n")
+}

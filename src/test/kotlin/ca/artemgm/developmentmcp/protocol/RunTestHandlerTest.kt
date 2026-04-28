@@ -16,7 +16,7 @@ class RunTestHandlerTest {
         toolFactory = { ctx ->
             RunTestTool(
                 configCreator = { params -> capturedTargets = params.targets; "RunTest-stub" },
-                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null) },
+                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null, "") },
                 filePathResolver = { null },
                 classesInFile = { emptySet() },
                 sourceReader = { null },
@@ -60,6 +60,17 @@ class RunTestHandlerTest {
         fun `coverageFor is optional`() {
             assertThat(schemaProperty(schema, "coverageFor")["type"]).isEqualTo("array")
             assertThat(requiredParams(schema)).doesNotContain("coverageFor")
+        }
+
+        @Test
+        fun `outputLines is optional integer in schema`() {
+            assertThat(schemaProperty(schema, "outputLines")["type"]).isEqualTo("integer")
+            assertThat(requiredParams(schema)).doesNotContain("outputLines")
+        }
+
+        @Test
+        fun `outputFilter is optional string in schema`() {
+            assertOptionalStringParam(schema, "outputFilter")
         }
 
     }

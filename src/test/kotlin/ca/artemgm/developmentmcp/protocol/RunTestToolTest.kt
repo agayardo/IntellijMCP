@@ -19,7 +19,7 @@ class RunTestToolTest {
             callOrder += "executionLauncher"
             launcherConfigName = name
             launcherPackageNames = pkgs
-            ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null)
+            ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null, "")
         },
         filePathResolver = { null },
         classesInFile = { emptySet() },
@@ -30,7 +30,7 @@ class RunTestToolTest {
 
     private fun stubTool(
         executionLauncher: (String, Set<String>) -> ExecutionResult = { _, _ ->
-            ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null)
+            ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, null, "")
         },
         filePathResolver: (String) -> String? = { null },
         classesInFile: (String) -> Set<String> = { emptySet() },
@@ -45,12 +45,18 @@ class RunTestToolTest {
         waitForSmartMode = {},
     )
 
+    private fun RunTestTool.runSilently(
+        scope: RunTestTool.TestScope,
+        targets: List<String>,
+        coverageFor: List<String>? = null
+    ) = handle(scope, targets, coverageFor, outputLines = 0, outputFilter = Regex(".*"))
+
     @Nested
     inner class ConfigurationAndExecution {
 
         @Test
         fun `package scope passes PACKAGE scope to config creator`() {
-            tool.handle(TestScope.PACKAGE, listOf("com.example.tests"))
+            tool.runSilently(TestScope.PACKAGE, listOf("com.example.tests"))
 
             assertThat(capturedParams!!.scope).isEqualTo(TestScope.PACKAGE)
             assertThat(capturedParams!!.targets).containsExactly("com.example.tests")
@@ -58,7 +64,7 @@ class RunTestToolTest {
 
         @Test
         fun `class scope passes CLASS scope to config creator`() {
-            tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             assertThat(capturedParams!!.scope).isEqualTo(TestScope.CLASS)
             assertThat(capturedParams!!.targets).containsExactly("com.example.MyTest")
@@ -66,7 +72,7 @@ class RunTestToolTest {
 
         @Test
         fun `method scope passes METHOD scope and full target to config creator`() {
-            tool.handle(TestScope.METHOD, listOf("com.example.MyTest#testFoo"))
+            tool.runSilently(TestScope.METHOD, listOf("com.example.MyTest#testFoo"))
 
             assertThat(capturedParams!!.scope).isEqualTo(TestScope.METHOD)
             assertThat(capturedParams!!.targets).containsExactly("com.example.MyTest#testFoo")
@@ -74,14 +80,14 @@ class RunTestToolTest {
 
         @Test
         fun `multiple targets are passed through to config creator`() {
-            tool.handle(TestScope.CLASS, listOf("com.example.FooTest", "com.example.BarTest"))
+            tool.runSilently(TestScope.CLASS, listOf("com.example.FooTest", "com.example.BarTest"))
 
             assertThat(capturedParams!!.targets).containsExactly("com.example.FooTest", "com.example.BarTest")
         }
 
         @Test
         fun `successful invocation includes test results in response`() {
-            val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            val result = tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             assertThat(textOf(result)).contains("Total: 1, Passed: 1, Failed: 0")
             assertThat(result.isError).isFalse()
@@ -93,7 +99,7 @@ class RunTestToolTest {
                 executionLauncher = { _, _ -> throw RuntimeException("connection refused") }
             )
 
-            val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            val result = tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             assertThat(textOf(result)).contains("connection refused")
             assertThat(result.isError).isTrue()
@@ -101,7 +107,7 @@ class RunTestToolTest {
 
         @Test
         fun `injected dependencies are used instead of real APIs`() {
-            tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             assertThat(capturedParams).isNotNull
             assertThat(launcherConfigName).isEqualTo("RunTest-stub")
@@ -114,17 +120,17 @@ class RunTestToolTest {
         @Test
         fun `failed execution result sets isError on tool response`() {
             val tool = stubTool(
-                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 0, Failed: 1", true, null) }
+                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 0, Failed: 1", true, null, "") }
             )
 
-            val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            val result = tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             assertThat(result.isError).isTrue()
         }
 
         @Test
         fun `successful execution result does not set isError`() {
-            val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            val result = tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             assertThat(result.isError).isFalse()
         }
@@ -135,7 +141,7 @@ class RunTestToolTest {
 
         @Test
         fun `waitForSmartMode called before config creation and execution`() {
-            tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             assertThat(callOrder.first()).isEqualTo("waitForSmartMode")
         }
@@ -162,7 +168,7 @@ class RunTestToolTest {
                 )
             )
             val tool = stubTool(
-                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, coverage) },
+                executionLauncher = { _, _ -> ExecutionResult("Total: 1, Passed: 1, Failed: 0", false, coverage, "") },
                 filePathResolver = { className ->
                     when (className) {
                         "com.example.Foo" -> "src/main/kotlin/com/example/Foo.kt"
@@ -172,7 +178,7 @@ class RunTestToolTest {
                 }
             )
 
-            val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            val result = tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             val text = textOf(result)
             assertThat(text).contains("Coverage for package 'com.example':")
@@ -185,7 +191,7 @@ class RunTestToolTest {
 
         @Test
         fun `response omits coverage section when execution returns null coverage`() {
-            val result = tool.handle(TestScope.CLASS, listOf("com.example.MyTest"))
+            val result = tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest"))
 
             val text = textOf(result)
             assertThat(text).doesNotContain("Coverage")
@@ -194,35 +200,35 @@ class RunTestToolTest {
 
         @Test
         fun `class scope derives package from class FQN for coverage`() {
-            tool.handle(TestScope.CLASS, listOf("com.example.service.MyTest"))
+            tool.runSilently(TestScope.CLASS, listOf("com.example.service.MyTest"))
 
             assertThat(launcherPackageNames).containsExactly("com.example.service")
         }
 
         @Test
         fun `method scope derives package from class FQN before hash`() {
-            tool.handle(TestScope.METHOD, listOf("com.example.service.MyTest#testFoo"))
+            tool.runSilently(TestScope.METHOD, listOf("com.example.service.MyTest#testFoo"))
 
             assertThat(launcherPackageNames).containsExactly("com.example.service")
         }
 
         @Test
         fun `package scope passes package name directly for coverage`() {
-            tool.handle(TestScope.PACKAGE, listOf("com.example.tests"))
+            tool.runSilently(TestScope.PACKAGE, listOf("com.example.tests"))
 
             assertThat(launcherPackageNames).containsExactly("com.example.tests")
         }
 
         @Test
         fun `multiple targets from different packages produce merged package set`() {
-            tool.handle(TestScope.CLASS, listOf("com.example.a.FooTest", "com.example.b.BarTest"))
+            tool.runSilently(TestScope.CLASS, listOf("com.example.a.FooTest", "com.example.b.BarTest"))
 
             assertThat(launcherPackageNames).containsExactlyInAnyOrder("com.example.a", "com.example.b")
         }
 
         @Test
         fun `multiple targets from same package deduplicate package names`() {
-            tool.handle(TestScope.CLASS, listOf("com.example.FooTest", "com.example.BarTest"))
+            tool.runSilently(TestScope.CLASS, listOf("com.example.FooTest", "com.example.BarTest"))
 
             assertThat(launcherPackageNames).containsExactly("com.example")
         }
@@ -246,9 +252,9 @@ class RunTestToolTest {
 
         private fun runWithCoverage(coverage: PackageCoverage): String {
             val tool = stubTool(
-                executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) }
+                executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage, "") }
             )
-            return textOf(tool.handle(TestScope.CLASS, listOf("com.example.MyTest")))
+            return textOf(tool.runSilently(TestScope.CLASS, listOf("com.example.MyTest")))
         }
     }
 
@@ -262,7 +268,7 @@ class RunTestToolTest {
             source: List<String>?,
             classesInFile: (String) -> Set<String>
         ) = stubTool(
-            executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage) },
+            executionLauncher = { _, _ -> ExecutionResult("ok", false, coverage, "") },
             filePathResolver = { "src/main/kotlin/com/example/Foo.kt" },
             classesInFile = classesInFile,
             sourceReader = { source }
@@ -274,7 +280,7 @@ class RunTestToolTest {
             classesInFile: (String) -> Set<String>
         ): String {
             val tool = toolReturning(coverage, source, classesInFile)
-            return textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest"), listOf("**/Foo.kt")))
+            return textOf(tool.runSilently(TestScope.CLASS, listOf("com.example.FooTest"), listOf("**/Foo.kt")))
         }
 
         @Test
@@ -286,7 +292,7 @@ class RunTestToolTest {
             val source = listOf("package com.example", "", "class Foo {", "    fun a() {}", "    fun b() {}", "}")
             val tool = toolReturning(coverage, source, { emptySet() })
 
-            val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest"), listOf("**/Foo.kt")))
+            val text = textOf(tool.runSilently(TestScope.CLASS, listOf("com.example.FooTest"), listOf("**/Foo.kt")))
 
             assertThat(text).contains("Uncovered lines in src/main/kotlin/com/example/Foo.kt:")
             assertThat(text).contains("4:     fun a() {}")
@@ -302,7 +308,7 @@ class RunTestToolTest {
             )
             val tool = toolReturning(coverage, listOf("a", "b", "c", "d"), { emptySet() })
 
-            val text = textOf(tool.handle(TestScope.CLASS, listOf("com.example.FooTest")))
+            val text = textOf(tool.runSilently(TestScope.CLASS, listOf("com.example.FooTest")))
 
             assertThat(text).doesNotContain("Uncovered lines")
         }
@@ -349,6 +355,73 @@ class RunTestToolTest {
             val text = runWithCoverageFor(coverage, null, fooAndFooKt)
 
             assertThat(text).contains("Foo.kt: 4/6 lines")
+        }
+    }
+
+    @Nested
+    inner class TestOutput {
+
+        private val matchAll = Regex(".*")
+
+        private fun responseWithConsoleOutput(
+            consoleOutput: String,
+            outputLines: Int = RunTestTool.DEFAULT_OUTPUT_LINES,
+            outputFilter: Regex = RunTestTool.DEFAULT_OUTPUT_FILTER
+        ): String {
+            val tool = stubTool(
+                executionLauncher = { _, _ -> ExecutionResult("ok", false, null, consoleOutput) }
+            )
+            return textOf(tool.handle(TestScope.CLASS, listOf("com.example.MyTest"), outputLines = outputLines, outputFilter = outputFilter))
+        }
+
+        @Test
+        fun `response includes last N matching lines of test output`() {
+            val text = responseWithConsoleOutput(
+                consoleOutput = (1..10).joinToString("\n") { "line $it" },
+                outputLines = 3,
+                outputFilter = matchAll
+            )
+
+            assertThat(text).contains("line 8\nline 9\nline 10")
+        }
+
+        @Test
+        fun `outputLines zero suppresses test output`() {
+            val text = responseWithConsoleOutput("some output", outputLines = 0, outputFilter = matchAll)
+
+            assertThat(text).doesNotContain("Test output")
+            assertThat(text).doesNotContain("some output")
+        }
+
+        @Test
+        fun `empty console output omits section even with positive outputLines`() {
+            val text = responseWithConsoleOutput("", outputLines = 100, outputFilter = matchAll)
+
+            assertThat(text).doesNotContain("Test output")
+        }
+
+        @Test
+        fun `default filter excludes lines not matching TEST DEBUG`() {
+            val text = responseWithConsoleOutput("noise\nTEST DEBUG: x=1\nmore noise")
+
+            assertThat(text).contains("TEST DEBUG: x=1")
+            assertThat(text).doesNotContain("noise")
+        }
+
+        @Test
+        fun `default filter produces no output section when nothing matches`() {
+            assertThat(responseWithConsoleOutput("no match here")).doesNotContain("Test output")
+        }
+
+        @Test
+        fun `custom filter selects only matching lines`() {
+            val text = responseWithConsoleOutput(
+                "##teamcity[stuff]\nSTDERR: hello\n##teamcity[more]",
+                outputFilter = Regex("STDERR")
+            )
+
+            assertThat(text).contains("STDERR: hello")
+            assertThat(text).doesNotContain("teamcity")
         }
     }
 }
