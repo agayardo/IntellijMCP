@@ -70,17 +70,20 @@ class ProjectResolverTest {
     @Nested
     inner class ResolveByTarget {
 
-        @Test
-        fun `resolves when target found in exactly one project`() {
+        private fun resolveWithProjectAMatch(projectAMatch: TargetMatch): ResolvedContext {
             val resolver = resolver(
                 projects = arrayOf(projectA, projectB),
                 targetMatches = mapOf(
-                    projectA to TargetMatch.NotFound,
+                    projectA to projectAMatch,
                     projectB to TargetMatch.Resolved(ResolvedContext(projectB, moduleB))
                 )
             )
+            return resolver.resolve("com.example.MyClass", null)
+        }
 
-            val result = resolver.resolve("com.example.MyClass", null)
+        @Test
+        fun `resolves when target found in exactly one project`() {
+            val result = resolveWithProjectAMatch(TargetMatch.NotFound)
 
             assertThat(result.project).isSameAs(projectB)
             assertThat(result.module).isSameAs(moduleB)
@@ -117,15 +120,7 @@ class ProjectResolverTest {
 
         @Test
         fun `resolved match takes precedence over found-but-unknown in another project`() {
-            val resolver = resolver(
-                projects = arrayOf(projectA, projectB),
-                targetMatches = mapOf(
-                    projectA to TargetMatch.FoundButModuleUnknown,
-                    projectB to TargetMatch.Resolved(ResolvedContext(projectB, moduleB))
-                )
-            )
-
-            val result = resolver.resolve("com.example.MyClass", null)
+            val result = resolveWithProjectAMatch(TargetMatch.FoundButModuleUnknown)
 
             assertThat(result.project).isSameAs(projectB)
         }
@@ -157,6 +152,42 @@ class ProjectResolverTest {
                 .isInstanceOf(IllegalArgumentException::class.java)
                 .hasMessageContaining("any open project")
         }
+
+        @Test
+        fun `retries after VFS refresh when target not found on first attempt`() {
+            var attempt = 0
+            var refreshCalled = false
+            val resolver = ProjectResolver(
+                openProjects = { arrayOf(projectA) },
+                findModuleByName = { _, _ -> null },
+                resolveTargetInProject = { project, _ ->
+                    attempt++
+                    if (attempt == 1) TargetMatch.NotFound
+                    else TargetMatch.Resolved(ResolvedContext(project, moduleA))
+                },
+                listModuleNames = { emptyList() },
+                refreshAndWait = { refreshCalled = true }
+            )
+
+            val result = resolver.resolve("com.example.NewClass", null)
+
+            assertThat(refreshCalled).isTrue()
+            assertThat(result.module).isSameAs(moduleA)
+        }
+
+        @Test
+        fun `does not refresh when target found on first attempt`() {
+            var refreshCalled = false
+            val resolver = resolver(
+                projects = arrayOf(projectA),
+                targetMatches = mapOf(projectA to TargetMatch.Resolved(ResolvedContext(projectA, moduleA))),
+                refreshAndWait = { refreshCalled = true }
+            )
+
+            resolver.resolve("com.example.MyClass", null)
+
+            assertThat(refreshCalled).isFalse()
+        }
     }
 }
 
@@ -164,10 +195,12 @@ private fun resolver(
     projects: Array<Project> = emptyArray(),
     moduleByName: Map<Project, Map<String, com.intellij.openapi.module.Module>> = emptyMap(),
     targetMatches: Map<Project, TargetMatch> = emptyMap(),
-    moduleNames: Map<Project, List<String>> = emptyMap()
+    moduleNames: Map<Project, List<String>> = emptyMap(),
+    refreshAndWait: () -> Unit = {}
 ) = ProjectResolver(
     openProjects = { projects },
     findModuleByName = { project, name -> moduleByName[project]?.get(name) },
     resolveTargetInProject = { project, _ -> targetMatches[project] ?: TargetMatch.NotFound },
-    listModuleNames = { project -> moduleNames[project] ?: emptyList() }
+    listModuleNames = { project -> moduleNames[project] ?: emptyList() },
+    refreshAndWait = refreshAndWait
 )

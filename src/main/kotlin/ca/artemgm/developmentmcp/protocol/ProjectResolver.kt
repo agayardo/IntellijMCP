@@ -10,14 +10,16 @@ class ProjectResolver internal constructor(
     private val openProjects: () -> Array<Project>,
     private val findModuleByName: (Project, String) -> Module?,
     private val resolveTargetInProject: (Project, String) -> TargetMatch,
-    private val listModuleNames: (Project) -> List<String>
+    private val listModuleNames: (Project) -> List<String>,
+    private val refreshAndWait: () -> Unit = {}
 ) {
 
     constructor() : this(
         openProjects = { ProjectManager.getInstance().openProjects },
         findModuleByName = { project, name -> ModuleManager.getInstance(project).findModuleByName(name) },
         resolveTargetInProject = ::resolveViaSourceRoots,
-        listModuleNames = { project -> ModuleManager.getInstance(project).modules.map { it.name } }
+        listModuleNames = { project -> ModuleManager.getInstance(project).modules.map { it.name } },
+        refreshAndWait = ::refreshVfsAndWaitForSmartMode
     )
 
     fun resolve(target: String, moduleName: String?): ResolvedContext {
@@ -32,6 +34,16 @@ class ProjectResolver internal constructor(
     }
 
     private fun resolveByTarget(projects: Array<Project>, target: String): ResolvedContext {
+        val result = attemptResolve(projects, target)
+        if (result != null) return result
+
+        refreshAndWait()
+
+        return attemptResolve(projects, target)
+            ?: throw IllegalArgumentException("Could not find '$target' in any open project")
+    }
+
+    private fun attemptResolve(projects: Array<Project>, target: String): ResolvedContext? {
         val matches = mutableListOf<ResolvedContext>()
         var foundButUnresolvable = false
 
@@ -48,9 +60,7 @@ class ProjectResolver internal constructor(
                 "Found '$target' but could not determine its module. " +
                     "Specify moduleName to disambiguate. Available modules: ${allModuleNames(projects)}"
             )
-            throw IllegalArgumentException(
-                "Could not find '$target' in any open project"
-            )
+            return null
         }
         if (matches.size > 1) throw IllegalArgumentException(
             "'$target' found in multiple projects. Specify moduleName to disambiguate. " +
@@ -143,3 +153,10 @@ private fun containsClassOrObject(content: String, name: String): Boolean {
 }
 
 private val SOURCE_EXTENSIONS = listOf(".kt", ".java")
+
+private fun refreshVfsAndWaitForSmartMode() {
+    com.intellij.openapi.vfs.VirtualFileManager.getInstance().refreshWithoutFileWatcher(false)
+    for (project in ProjectManager.getInstance().openProjects) {
+        com.intellij.openapi.project.DumbService.getInstance(project).waitForSmartMode()
+    }
+}
