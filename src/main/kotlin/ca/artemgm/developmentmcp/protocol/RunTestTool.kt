@@ -422,14 +422,20 @@ internal fun collectTestOutput(root: AbstractTestProxy): String {
         override fun printExpectedActualHeader(expected: String, actual: String) {}
     }
     try {
-        for (test in root.allTests.filter { it.isLeaf && it !== root }) {
-            test.printOn(printer)
+        for (node in outputNodes(root)) {
+            node.printOwnPrintablesOn(printer)
         }
     } catch (_: Exception) {
         return ""
     }
     return sb.toString()
 }
+
+// All nodes except root — includes suite (class) nodes so that output produced during
+// class initialization (field init, @BeforeAll) is captured alongside leaf test output.
+// Each node prints only its own output via printOwnPrintablesOn, avoiding duplication.
+internal fun outputNodes(root: AbstractTestProxy): List<AbstractTestProxy> =
+    root.allTests.filter { it !== root }
 
 private fun formatTestResults(configName: String, root: AbstractTestProxy, exitCode: Int, consoleOutput: String): TestRunSummary {
     val leafTests = root.allTests.filter { it.isLeaf && it !== root }
